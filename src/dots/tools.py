@@ -187,7 +187,11 @@ def _safe_tar_extractall(tf: tarfile.TarFile, dest: Path) -> None:
                         member.name, member.linkname),
                     hint="The archive contains an absolute symlink. This may be a malicious archive.",
                 )
-    tf.extractall(str(dest))
+    # Use data filter on Python 3.12+ to strip dangerous metadata
+    if hasattr(tarfile, 'data_filter'):
+        tf.extractall(str(dest), filter='data')
+    else:
+        tf.extractall(str(dest))
 
 
 def _safe_zip_extractall(zf: zipfile.ZipFile, dest: Path) -> None:

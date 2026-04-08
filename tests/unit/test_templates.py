@@ -55,6 +55,19 @@ def test_template_render_platform_conditional(dots, tmp_repo, tmp_home):
     assert result == "linux"
 
 
+def test_template_sandbox_blocks_introspection(dots, tmp_repo, tmp_home):
+    """Sandbox prevents access to Python internals via template."""
+    tmpl = tmp_repo / "evil.j2"
+    tmpl.write_text("{{ ''.__class__.__mro__[1].__subclasses__() }}")
+
+    config = dots.Config(repo_root=tmp_repo)
+    config.vars = {}
+    config.env = {}
+
+    with pytest.raises(Exception):
+        dots.render_template(tmpl, config)
+
+
 def test_template_undefined_var_raises(dots, tmp_repo, tmp_home):
     """Undefined variable raises DotsError with hint."""
     tmpl = tmp_repo / "test.sh.j2"

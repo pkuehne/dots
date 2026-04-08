@@ -50,6 +50,24 @@ def test_apply_mode_644(dots, tmp_path):
     assert stat.S_IMODE(f.stat().st_mode) == 0o644
 
 
+def test_write_secret_creates_with_mode(dots, tmp_path):
+    """_write_secret creates file with correct mode from the start."""
+    f = tmp_path / "secret"
+    dots.deploy._write_secret(f, b"top-secret", "600")
+    assert f.read_bytes() == b"top-secret"
+    assert stat.S_IMODE(f.stat().st_mode) == 0o600
+
+
+def test_write_secret_overwrites_existing(dots, tmp_path):
+    """_write_secret overwrites existing file and applies mode."""
+    f = tmp_path / "secret"
+    f.write_text("old")
+    f.chmod(0o644)
+    dots.deploy._write_secret(f, b"new-secret", "600")
+    assert f.read_bytes() == b"new-secret"
+    assert stat.S_IMODE(f.stat().st_mode) == 0o600
+
+
 def test_apply_mode_empty_noop(dots, tmp_path):
     """Empty mode string is a no-op."""
     f = tmp_path / "test"

@@ -149,6 +149,8 @@ def _write_secret(path: Path, data: bytes, mode_str: str) -> None:
         os.write(fd, data)
     finally:
         os.close(fd)
+    # O_CREAT only sets mode on new files; ensure mode on existing files too
+    path.chmod(mode)
 
 
 def _apply_mode(path: Path, mode_str: str) -> None:

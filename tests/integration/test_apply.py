@@ -8,6 +8,63 @@ from unittest.mock import patch
 import pytest
 
 
+# ── Security: path validation ───────────────────────────────────────────────
+
+
+def test_src_outside_repo_rejected(dots, tmp_repo, tmp_home):
+    """Source path that escapes repo root is rejected."""
+    (tmp_repo / "dots.toml").write_text("""\
+[[file]]
+src = "../../../etc/passwd"
+dst = "~/.stolen"
+""")
+
+    with patch("dots.platform.detect_platform", return_value="linux"):
+        config = dots.load_config(tmp_repo / "dots.toml", tmp_repo)
+        result = dots.cmd_apply(config)
+
+    assert not (tmp_home / ".stolen").exists()
+
+
+def test_dst_outside_home_rejected(dots, tmp_repo, tmp_home):
+    """Destination path outside $HOME is rejected."""
+    (tmp_repo / "files" / "evil").write_text("pwned")
+    (tmp_repo / "dots.toml").write_text("""\
+[[file]]
+src = "files/evil"
+dst = "/tmp/pwned"
+link = false
+""")
+
+    with patch("dots.platform.detect_platform", return_value="linux"):
+        config = dots.load_config(tmp_repo / "dots.toml", tmp_repo)
+        result = dots.cmd_apply(config)
+
+    assert not Path("/tmp/pwned").exists()
+
+
+def test_secret_written_with_restricted_mode(dots, tmp_repo, tmp_home):
+    """Decrypted secrets are written with 600 permissions from the start."""
+    # We can't easily test the race-free write directly, but we can verify
+    # the final permissions on a secret file deployed in copy mode
+    (tmp_repo / "files" / "token").write_text("secret-value")
+    (tmp_repo / "dots.toml").write_text("""\
+[[file]]
+src = "files/token"
+dst = "~/.token"
+mode = "600"
+link = false
+""")
+
+    with patch("dots.platform.detect_platform", return_value="linux"):
+        config = dots.load_config(tmp_repo / "dots.toml", tmp_repo)
+        dots.cmd_apply(config)
+
+    target = tmp_home / ".token"
+    assert target.exists()
+    assert stat.S_IMODE(target.stat().st_mode) == 0o600
+
+
 def test_symlink_created(dots, tmp_repo, tmp_home):
     """Symlink created correctly."""
     (tmp_repo / "files" / ".vimrc").write_text("set nocompatible")

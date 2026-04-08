@@ -2,10 +2,92 @@
 
 import json
 import os
+import tarfile
+import zipfile
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 
 import pytest
+
+
+# ── Security: archive extraction ────────────────────────────────────────────
+
+
+def test_tar_path_traversal_rejected(dots, tmp_path):
+    """Tar archive with path traversal entry is rejected."""
+    from dots.tools import _safe_tar_extractall, ToolInstallError
+
+    # Create a malicious tar with a ../../ path
+    tar_path = tmp_path / "evil.tar.gz"
+    extract_dir = tmp_path / "extracted"
+    extract_dir.mkdir()
+
+    with tarfile.open(str(tar_path), "w:gz") as tf:
+        import io
+        data = b"pwned"
+        info = tarfile.TarInfo(name="../../etc/evil")
+        info.size = len(data)
+        tf.addfile(info, io.BytesIO(data))
+
+    with tarfile.open(str(tar_path), "r:gz") as tf:
+        with pytest.raises(ToolInstallError, match="path escapes"):
+            _safe_tar_extractall(tf, extract_dir)
+
+
+def test_tar_absolute_symlink_rejected(dots, tmp_path):
+    """Tar archive with absolute symlink target is rejected."""
+    from dots.tools import _safe_tar_extractall, ToolInstallError
+
+    tar_path = tmp_path / "evil.tar.gz"
+    extract_dir = tmp_path / "extracted"
+    extract_dir.mkdir()
+
+    with tarfile.open(str(tar_path), "w:gz") as tf:
+        info = tarfile.TarInfo(name="link")
+        info.type = tarfile.SYMTYPE
+        info.linkname = "/etc/passwd"
+        tf.addfile(info)
+
+    with tarfile.open(str(tar_path), "r:gz") as tf:
+        with pytest.raises(ToolInstallError, match="absolute symlink"):
+            _safe_tar_extractall(tf, extract_dir)
+
+
+def test_zip_path_traversal_rejected(dots, tmp_path):
+    """Zip archive with path traversal entry is rejected."""
+    from dots.tools import _safe_zip_extractall, ToolInstallError
+
+    zip_path = tmp_path / "evil.zip"
+    extract_dir = tmp_path / "extracted"
+    extract_dir.mkdir()
+
+    with zipfile.ZipFile(str(zip_path), "w") as zf:
+        zf.writestr("../../etc/evil", "pwned")
+
+    with zipfile.ZipFile(str(zip_path), "r") as zf:
+        with pytest.raises(ToolInstallError, match="path escapes"):
+            _safe_zip_extractall(zf, extract_dir)
+
+
+def test_safe_tar_extraction_works(dots, tmp_path):
+    """Normal tar extraction still works."""
+    from dots.tools import _safe_tar_extractall
+
+    tar_path = tmp_path / "good.tar.gz"
+    extract_dir = tmp_path / "extracted"
+
+    import io
+    with tarfile.open(str(tar_path), "w:gz") as tf:
+        data = b"hello"
+        info = tarfile.TarInfo(name="mybin")
+        info.size = len(data)
+        tf.addfile(info, io.BytesIO(data))
+
+    with tarfile.open(str(tar_path), "r:gz") as tf:
+        _safe_tar_extractall(tf, extract_dir)
+
+    assert (extract_dir / "mybin").exists()
+    assert (extract_dir / "mybin").read_bytes() == b"hello"
 
 
 def test_method_fallback_order(dots):
