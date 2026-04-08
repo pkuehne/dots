@@ -1943,12 +1943,6 @@ def cmd_init(directory: str = ".") -> None:
     (d / "files").mkdir(exist_ok=True)
     (d / "files.d").mkdir(exist_ok=True)
     (d / "shell").mkdir(exist_ok=True)
-    (d / "docs").mkdir(exist_ok=True)
-    (d / "adr").mkdir(exist_ok=True)
-    (d / "tests").mkdir(exist_ok=True)
-    (d / "tests" / "unit").mkdir(exist_ok=True)
-    (d / "tests" / "integration").mkdir(exist_ok=True)
-    (d / "tests" / "fixtures").mkdir(exist_ok=True)
 
     # Minimal dots.toml
     (d / "dots.toml").write_text(textwrap.dedent("""\
@@ -1963,7 +1957,7 @@ def cmd_init(directory: str = ".") -> None:
     """))
 
     print("✓ Initialized dots in {}".format(d))
-    print("  Created: dots.toml, files/, files.d/, shell/, docs/, adr/, tests/")
+    print("  Created: dots.toml, files/, files.d/, shell/")
 
 
 def cmd_apply(
