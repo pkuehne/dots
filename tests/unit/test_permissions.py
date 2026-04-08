@@ -38,7 +38,7 @@ def test_apply_mode_600(dots, tmp_path):
     """mode = "600" applied after write."""
     f = tmp_path / "test"
     f.write_text("content")
-    dots._apply_mode(f, "600")
+    dots.deploy._apply_mode(f, "600")
     assert stat.S_IMODE(f.stat().st_mode) == 0o600
 
 
@@ -46,7 +46,7 @@ def test_apply_mode_644(dots, tmp_path):
     """mode = "644" applied after write."""
     f = tmp_path / "test"
     f.write_text("content")
-    dots._apply_mode(f, "644")
+    dots.deploy._apply_mode(f, "644")
     assert stat.S_IMODE(f.stat().st_mode) == 0o644
 
 
@@ -55,5 +55,5 @@ def test_apply_mode_empty_noop(dots, tmp_path):
     f = tmp_path / "test"
     f.write_text("content")
     before = f.stat().st_mode
-    dots._apply_mode(f, "")
+    dots.deploy._apply_mode(f, "")
     assert f.stat().st_mode == before

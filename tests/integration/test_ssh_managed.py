@@ -15,7 +15,7 @@ def test_ssh_init_creates_config(dots, tmp_home):
         dots.SSHHost(host="myhost", options={"user": "peter"}),
     ]
 
-    with patch.object(dots, "detect_platform", return_value="linux"):
+    with patch("dots.platform.detect_platform", return_value="linux"):
         dots.ssh_init(config)
 
     generated = tmp_home / ".config" / "dots" / "ssh" / "config"
@@ -28,7 +28,7 @@ def test_ssh_config_permissions_600(dots, tmp_home):
     config = dots.Config()
     config.ssh_hosts = []
 
-    with patch.object(dots, "detect_platform", return_value="linux"):
+    with patch("dots.platform.detect_platform", return_value="linux"):
         dots.ssh_init(config)
 
     generated = tmp_home / ".config" / "dots" / "ssh" / "config"
@@ -40,7 +40,7 @@ def test_ssh_dir_700(dots, tmp_home):
     config = dots.Config()
     config.ssh_hosts = []
 
-    with patch.object(dots, "detect_platform", return_value="linux"):
+    with patch("dots.platform.detect_platform", return_value="linux"):
         dots.ssh_init(config)
 
     ssh_dir = tmp_home / ".ssh"
@@ -58,7 +58,7 @@ def test_include_inserted_into_ssh_config(dots, tmp_home):
     config = dots.Config()
     config.ssh_hosts = []
 
-    with patch.object(dots, "detect_platform", return_value="linux"):
+    with patch("dots.platform.detect_platform", return_value="linux"):
         dots.ssh_init(config)
 
     content = ssh_config.read_text()
@@ -71,7 +71,7 @@ def test_include_not_duplicated(dots, tmp_home):
     config = dots.Config()
     config.ssh_hosts = []
 
-    with patch.object(dots, "detect_platform", return_value="linux"):
+    with patch("dots.platform.detect_platform", return_value="linux"):
         dots.ssh_init(config)
         dots.ssh_init(config)
 

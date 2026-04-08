@@ -15,7 +15,7 @@ def test_template_context_has_platform(dots, tmp_repo, tmp_home):
     config.vars = {"name": "Test"}
     config.env = {"EDITOR": "vim"}
 
-    with patch.object(dots, "detect_platform", return_value="linux"):
+    with patch("dots.platform.detect_platform", return_value="linux"):
         ctx = dots.build_template_context(config)
 
     assert ctx["platform"] == "linux"
@@ -50,7 +50,7 @@ def test_template_render_platform_conditional(dots, tmp_repo, tmp_home):
     config.vars = {}
     config.env = {}
 
-    with patch.object(dots, "detect_platform", return_value="linux"):
+    with patch("dots.platform.detect_platform", return_value="linux"):
         result = dots.render_template(tmpl, config)
     assert result == "linux"
 

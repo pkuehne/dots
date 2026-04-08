@@ -59,16 +59,16 @@ def test_detect_goarch_arm64(dots):
 
 
 def test_detect_os_name_linux(dots):
-    with patch.object(dots, "detect_platform", return_value="linux"):
+    with patch("dots.platform.detect_platform", return_value="linux"):
         assert dots.detect_os_name() == "linux"
 
 
 def test_detect_os_name_termux(dots):
     """Termux reports as linux for OS name."""
-    with patch.object(dots, "detect_platform", return_value="termux"):
+    with patch("dots.platform.detect_platform", return_value="termux"):
         assert dots.detect_os_name() == "linux"
 
 
 def test_detect_os_name_darwin(dots):
-    with patch.object(dots, "detect_platform", return_value="darwin"):
+    with patch("dots.platform.detect_platform", return_value="darwin"):
         assert dots.detect_os_name() == "darwin"

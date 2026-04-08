@@ -23,7 +23,7 @@ black dots
 
 ## Key invariants
 
-1. dots is a single Python file. Do not split it.
+1. dots is a Python package under src/dots/. Entry point: dots.cli:main.
 2. No mandatory third-party imports. All optional deps are guarded.
 3. Every user-facing operation is idempotent. Running twice = same result.
 4. No operation modifies anything outside ~. No /etc, no /usr.

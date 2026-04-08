@@ -17,7 +17,7 @@ def test_method_fallback_order(dots):
         dots.ToolInstall(method="cargo", package="ripgrep"),
     ]
 
-    with patch.object(dots, "detect_platform", return_value="linux"), \
+    with patch("dots.platform.detect_platform", return_value="linux"), \
          patch("shutil.which", side_effect=lambda x: "/usr/bin/" + x if x in ("apt-get", "cargo") else None):
         inst = dots.find_install_method(tool)
 
@@ -32,7 +32,7 @@ def test_platform_filter_skips(dots):
         dots.ToolInstall(method="pkg", package="ripgrep", only=["termux"]),
     ]
 
-    with patch.object(dots, "detect_platform", return_value="linux"), \
+    with patch("dots.platform.detect_platform", return_value="linux"), \
          patch("shutil.which", return_value="/usr/bin/pkg"):
         inst = dots.find_install_method(tool)
 
@@ -52,7 +52,7 @@ def test_unavailable_manager_skipped(dots):
             return "/usr/bin/cargo"
         return None
 
-    with patch.object(dots, "detect_platform", return_value="linux"), \
+    with patch("dots.platform.detect_platform", return_value="linux"), \
          patch("shutil.which", side_effect=mock_which):
         inst = dots.find_install_method(tool)
 
@@ -77,9 +77,9 @@ def test_install_apt(dots):
     tool = dots.Tool(name="rg")
     inst = dots.ToolInstall(method="apt", package="ripgrep")
 
-    with patch.object(dots, "detect_platform", return_value="linux"), \
+    with patch("dots.platform.detect_platform", return_value="linux"), \
          patch("os.getuid", return_value=1000), \
-         patch.object(dots, "run") as mock_run:
+         patch("dots.utils.run") as mock_run:
         result = dots.install_tool(tool, inst, Path("/tmp/bin"))
 
     assert result == "apt"
@@ -93,7 +93,7 @@ def test_install_apt_termux_error(dots):
     tool = dots.Tool(name="rg")
     inst = dots.ToolInstall(method="apt", package="ripgrep")
 
-    with patch.object(dots, "detect_platform", return_value="termux"):
+    with patch("dots.platform.detect_platform", return_value="termux"):
         with pytest.raises(dots.ToolInstallError, match="Termux"):
             dots.install_tool(tool, inst, Path("/tmp/bin"))
 
@@ -103,7 +103,7 @@ def test_install_brew(dots):
     tool = dots.Tool(name="rg")
     inst = dots.ToolInstall(method="brew", package="ripgrep")
 
-    with patch.object(dots, "run") as mock_run:
+    with patch("dots.utils.run") as mock_run:
         result = dots.install_tool(tool, inst, Path("/tmp/bin"))
 
     assert result == "brew"
@@ -116,7 +116,7 @@ def test_install_cargo(dots):
     tool = dots.Tool(name="rg")
     inst = dots.ToolInstall(method="cargo", package="ripgrep", binary="rg")
 
-    with patch.object(dots, "run") as mock_run:
+    with patch("dots.utils.run") as mock_run:
         result = dots.install_tool(tool, inst, Path("/tmp/bin"))
 
     assert result == "cargo"
@@ -146,9 +146,10 @@ def test_install_unknown_method(dots):
 
 def test_glob_match(dots):
     """Asset glob pattern matching."""
-    assert dots._glob_match("ripgrep-*.tar.gz", "ripgrep-14.1.0-x86_64-unknown-linux-musl.tar.gz")
-    assert not dots._glob_match("ripgrep-*.zip", "ripgrep-14.1.0.tar.gz")
-    assert dots._glob_match("bat-v*-aarch64-*", "bat-v0.24.0-aarch64-unknown-linux-musl.tar.gz")
+    from dots.tools import _glob_match
+    assert _glob_match("ripgrep-*.tar.gz", "ripgrep-14.1.0-x86_64-unknown-linux-musl.tar.gz")
+    assert not _glob_match("ripgrep-*.zip", "ripgrep-14.1.0.tar.gz")
+    assert _glob_match("bat-v*-aarch64-*", "bat-v0.24.0-aarch64-unknown-linux-musl.tar.gz")
 
 
 def test_github_rate_limit_error(dots):
@@ -162,6 +163,6 @@ def test_github_rate_limit_error(dots):
 
     err = HTTPError("url", 403, "Forbidden", headers, BytesIO(b""))
 
-    with patch.object(dots, "urlopen", side_effect=err):
+    with patch("dots.tools.urlopen", side_effect=err):
         with pytest.raises(dots.ToolInstallError, match="rate limit"):
             dots.github_get_latest_release("owner/repo")

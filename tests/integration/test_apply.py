@@ -13,7 +13,7 @@ def test_symlink_created(dots, tmp_repo, tmp_home):
     (tmp_repo / "files" / ".vimrc").write_text("set nocompatible")
     (tmp_repo / "dots.toml").write_text("[meta]\nversion = 1\n")
 
-    with patch.object(dots, "detect_platform", return_value="linux"):
+    with patch("dots.platform.detect_platform", return_value="linux"):
         config = dots.load_config(tmp_repo / "dots.toml", tmp_repo)
         dots.cmd_apply(config)
 
@@ -27,7 +27,7 @@ def test_symlink_idempotent(dots, tmp_repo, tmp_home):
     (tmp_repo / "files" / ".vimrc").write_text("set nocompatible")
     (tmp_repo / "dots.toml").write_text("[meta]\nversion = 1\n")
 
-    with patch.object(dots, "detect_platform", return_value="linux"):
+    with patch("dots.platform.detect_platform", return_value="linux"):
         config = dots.load_config(tmp_repo / "dots.toml", tmp_repo)
         dots.cmd_apply(config)
         result1 = os.lstat(str(tmp_home / ".vimrc")).st_ino
@@ -46,7 +46,7 @@ def test_stale_symlink_replaced(dots, tmp_repo, tmp_home):
     target = tmp_home / ".vimrc"
     target.symlink_to("/nonexistent/old/path")
 
-    with patch.object(dots, "detect_platform", return_value="linux"):
+    with patch("dots.platform.detect_platform", return_value="linux"):
         config = dots.load_config(tmp_repo / "dots.toml", tmp_repo)
         dots.cmd_apply(config)
 
@@ -65,7 +65,7 @@ def test_existing_file_backed_up(dots, tmp_repo, tmp_home):
     target = tmp_home / ".vimrc"
     target.write_text("old content")
 
-    with patch.object(dots, "detect_platform", return_value="linux"):
+    with patch("dots.platform.detect_platform", return_value="linux"):
         config = dots.load_config(tmp_repo / "dots.toml", tmp_repo)
         dots.cmd_apply(config)
 
@@ -81,7 +81,7 @@ def test_ssh_dir_700(dots, tmp_repo, tmp_home):
     (tmp_repo / "files" / ".ssh" / "config").write_text("# ssh config")
     (tmp_repo / "dots.toml").write_text("[meta]\nversion = 1\n")
 
-    with patch.object(dots, "detect_platform", return_value="linux"):
+    with patch("dots.platform.detect_platform", return_value="linux"):
         config = dots.load_config(tmp_repo / "dots.toml", tmp_repo)
         dots.cmd_apply(config)
 
@@ -95,7 +95,7 @@ def test_copy_mode(dots, tmp_repo, tmp_home):
     (tmp_repo / "files" / ".vimrc").write_text("set nocompatible")
     (tmp_repo / "dots.toml").write_text("[meta]\nversion = 1\n")
 
-    with patch.object(dots, "detect_platform", return_value="linux"):
+    with patch("dots.platform.detect_platform", return_value="linux"):
         config = dots.load_config(tmp_repo / "dots.toml", tmp_repo)
         dots.cmd_apply(config, force_copy=True)
 
@@ -109,7 +109,7 @@ def test_dry_run_no_side_effects(dots, tmp_repo, tmp_home):
     (tmp_repo / "files" / ".vimrc").write_text("set nocompatible")
     (tmp_repo / "dots.toml").write_text("[meta]\nversion = 1\n")
 
-    with patch.object(dots, "detect_platform", return_value="linux"):
+    with patch("dots.platform.detect_platform", return_value="linux"):
         config = dots.load_config(tmp_repo / "dots.toml", tmp_repo)
         dots.cmd_apply(config, dry_run=True)
 
@@ -128,7 +128,7 @@ mode = "600"
 link = false
 """)
 
-    with patch.object(dots, "detect_platform", return_value="linux"):
+    with patch("dots.platform.detect_platform", return_value="linux"):
         config = dots.load_config(toml, tmp_repo)
         dots.cmd_apply(config)
 
@@ -143,7 +143,7 @@ def test_nested_dirs_created(dots, tmp_repo, tmp_home):
     (tmp_repo / "files" / ".config" / "nvim" / "init.lua").write_text("-- nvim")
     (tmp_repo / "dots.toml").write_text("[meta]\nversion = 1\n")
 
-    with patch.object(dots, "detect_platform", return_value="linux"):
+    with patch("dots.platform.detect_platform", return_value="linux"):
         config = dots.load_config(tmp_repo / "dots.toml", tmp_repo)
         dots.cmd_apply(config)
 

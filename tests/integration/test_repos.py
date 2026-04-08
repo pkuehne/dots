@@ -15,7 +15,7 @@ def test_clone_new_repo(dots, tmp_home):
         dst=str(tmp_home / "test-repo"),
         shallow=True,
     )
-    with patch.object(dots, "run") as mock_run:
+    with patch("dots.utils.run") as mock_run:
         result = dots.clone_repo(repo)
 
     assert result == "ok"
@@ -55,7 +55,7 @@ def test_clone_with_ref(dots, tmp_home):
         dst=str(tmp_home / "test-repo"),
         ref="v1.0",
     )
-    with patch.object(dots, "run") as mock_run:
+    with patch("dots.utils.run") as mock_run:
         dots.clone_repo(repo)
 
     cmd = mock_run.call_args[0][0]
@@ -71,7 +71,7 @@ def test_clone_on_install_hook(dots, tmp_home):
         dst=str(tmp_home / "test-repo"),
         on_install="echo installed",
     )
-    with patch.object(dots, "run") as mock_run:
+    with patch("dots.utils.run") as mock_run:
         dots.clone_repo(repo)
 
     # Should be called twice: git clone + on_install
@@ -87,7 +87,7 @@ def test_update_repo(dots, tmp_home):
     (dst / ".git").mkdir()
 
     repo = dots.RepoEntry(name="test", repo="user/test", dst=str(dst))
-    with patch.object(dots, "run") as mock_run:
+    with patch("dots.utils.run") as mock_run:
         result = dots.update_repo(repo)
 
     assert result == "ok"
@@ -102,7 +102,7 @@ def test_update_shallow(dots, tmp_home):
     (dst / ".git").mkdir()
 
     repo = dots.RepoEntry(name="test", repo="user/test", dst=str(dst), shallow=True)
-    with patch.object(dots, "run") as mock_run:
+    with patch("dots.utils.run") as mock_run:
         dots.update_repo(repo)
 
     calls = [c[0][0] for c in mock_run.call_args_list]

@@ -25,7 +25,7 @@ def test_env_snippet_when_if_tool(dots):
         dots.EnvWhen(key="MANPAGER", value="bat", if_tool="bat"),
     ]
 
-    with patch.object(dots, "detect_platform", return_value="linux"):
+    with patch("dots.platform.detect_platform", return_value="linux"):
         result = dots.generate_env_snippet(config)
     assert "command -v bat" in result
     assert 'MANPAGER="bat"' in result
@@ -39,11 +39,11 @@ def test_env_snippet_when_platform_filter(dots):
         dots.EnvWhen(key="COLORTERM", value="truecolor", only=["linux", "darwin"]),
     ]
 
-    with patch.object(dots, "detect_platform", return_value="termux"):
+    with patch("dots.platform.detect_platform", return_value="termux"):
         result = dots.generate_env_snippet(config)
     assert "COLORTERM" not in result
 
-    with patch.object(dots, "detect_platform", return_value="linux"):
+    with patch("dots.platform.detect_platform", return_value="linux"):
         result = dots.generate_env_snippet(config)
     assert "COLORTERM" in result
 

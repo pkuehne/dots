@@ -54,7 +54,7 @@ def test_migrate_write_copies(dots, tmp_repo, tmp_home, capsys):
     (tmp_repo / "dots.toml").write_text("[meta]\nversion = 1\n")
 
     # .vimrc is not in MIGRATE_SCAN by default, but let's add it
-    with patch.object(dots, "MIGRATE_SCAN", [".vimrc"]):
+    with patch("dots.cli.MIGRATE_SCAN", [".vimrc"]):
         config = dots.Config(repo_root=tmp_repo)
         config.files = []
         dots.cmd_migrate(config, write=True)

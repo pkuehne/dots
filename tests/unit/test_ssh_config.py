@@ -25,7 +25,7 @@ def test_ssh_config_basic(dots):
         ),
     ]
 
-    with patch.object(dots, "detect_platform", return_value="linux"):
+    with patch("dots.platform.detect_platform", return_value="linux"):
         result = dots.generate_ssh_config(config)
 
     assert "Host *.internal" in result
@@ -44,11 +44,11 @@ def test_ssh_config_platform_filter(dots):
         ),
     ]
 
-    with patch.object(dots, "detect_platform", return_value="termux"):
+    with patch("dots.platform.detect_platform", return_value="termux"):
         result = dots.generate_ssh_config(config)
     assert "Host" not in result or "*.internal" not in result
 
-    with patch.object(dots, "detect_platform", return_value="linux"):
+    with patch("dots.platform.detect_platform", return_value="linux"):
         result = dots.generate_ssh_config(config)
     assert "Host *.internal" in result
 
@@ -63,7 +63,7 @@ def test_ssh_config_bool_values(dots):
         ),
     ]
 
-    with patch.object(dots, "detect_platform", return_value="linux"):
+    with patch("dots.platform.detect_platform", return_value="linux"):
         result = dots.generate_ssh_config(config)
 
     assert "ForwardAgent yes" in result
@@ -86,7 +86,7 @@ def test_ssh_config_multiple_hosts(dots):
         dots.SSHHost(host="host2", options={"user": "bob", "port": 2222}),
     ]
 
-    with patch.object(dots, "detect_platform", return_value="linux"):
+    with patch("dots.platform.detect_platform", return_value="linux"):
         result = dots.generate_ssh_config(config)
 
     assert "Host host1" in result

@@ -58,7 +58,7 @@ def test_encrypt_calls_age(dots, tmp_path):
     output = tmp_path / "secret.age"
 
     with patch("shutil.which", return_value="/usr/bin/age"), \
-         patch.object(dots, "run") as mock_run:
+         patch("dots.utils.run") as mock_run:
         dots.encrypt_file(src, "age1abc...", output)
 
     cmd = mock_run.call_args[0][0]

@@ -1,0 +1,18 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "dots"
+version = "0.1.0"
+description = "Dotfile management, tool installation, and shell environment generation"
+requires-python = ">=3.8"
+license = "MIT"
+dependencies = []
+
+[project.optional-dependencies]
+toml = ["tomli; python_version < '3.11'"]
+templates = ["jinja2"]
+
+[project.scripts]
+dots = "dots.cli:main"
