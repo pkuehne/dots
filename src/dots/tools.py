@@ -153,13 +153,13 @@ def install_github(tool: Tool, inst: ToolInstall, bin_dir: Path) -> None:
 
         if download_name.endswith(".tar.gz") or download_name.endswith(".tgz"):
             with tarfile.open(str(download_path), "r:gz") as tf:
-                tf.extractall(str(tmppath / "extracted"))
+                _safe_tar_extractall(tf, tmppath / "extracted")
             _find_and_install_binary(
                 tmppath / "extracted", binary_name, dest, inst.strip
             )
         elif download_name.endswith(".zip"):
             with zipfile.ZipFile(str(download_path), "r") as zf:
-                zf.extractall(str(tmppath / "extracted"))
+                _safe_zip_extractall(zf, tmppath / "extracted")
             _find_and_install_binary(
                 tmppath / "extracted", binary_name, dest, inst.strip
             )
@@ -167,6 +167,40 @@ def install_github(tool: Tool, inst: ToolInstall, bin_dir: Path) -> None:
             # Raw binary
             shutil.copy2(str(download_path), str(dest))
             dest.chmod(0o755)
+
+
+def _safe_tar_extractall(tf: tarfile.TarFile, dest: Path) -> None:
+    dest.mkdir(parents=True, exist_ok=True)
+    resolved_dest = dest.resolve()
+    for member in tf.getmembers():
+        member_path = (dest / member.name).resolve()
+        if not str(member_path).startswith(str(resolved_dest) + os.sep) and member_path != resolved_dest:
+            raise ToolInstallError(
+                "Refusing to extract '{}' — path escapes target directory".format(member.name),
+                hint="The archive contains a path traversal entry. This may be a malicious archive.",
+            )
+        if member.issym() or member.islnk():
+            link_target = Path(member.linkname)
+            if link_target.is_absolute():
+                raise ToolInstallError(
+                    "Refusing to extract symlink '{}' → '{}' — absolute symlink target".format(
+                        member.name, member.linkname),
+                    hint="The archive contains an absolute symlink. This may be a malicious archive.",
+                )
+    tf.extractall(str(dest))
+
+
+def _safe_zip_extractall(zf: zipfile.ZipFile, dest: Path) -> None:
+    dest.mkdir(parents=True, exist_ok=True)
+    resolved_dest = dest.resolve()
+    for info in zf.infolist():
+        member_path = (dest / info.filename).resolve()
+        if not str(member_path).startswith(str(resolved_dest) + os.sep) and member_path != resolved_dest:
+            raise ToolInstallError(
+                "Refusing to extract '{}' — path escapes target directory".format(info.filename),
+                hint="The archive contains a path traversal entry. This may be a malicious archive.",
+            )
+    zf.extractall(str(dest))
 
 
 def _find_and_install_binary(

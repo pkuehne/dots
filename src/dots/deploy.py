@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import os
 import shutil
 from pathlib import Path
 from typing import List
 
 from dots.config import Config, FileEntry
+from dots.errors import DotsError
 import dots.platform as _plat
 from dots.secrets import decrypt_file
 from dots.templates import render_template
@@ -34,8 +36,28 @@ def deploy_file(
         return "SKIP"
 
     repo_root = config.repo_root
-    src = repo_root / entry.src
+    src = (repo_root / entry.src).resolve()
     dst = Path(expand(entry.dst)) if "~" in entry.dst or "$" in entry.dst else Path(entry.dst)
+    # Resolve parent (which must exist or will be created) without following dst itself
+    # This avoids broken symlinks resolving to their (nonexistent) target
+    dst_resolved = dst.parent.resolve() / dst.name
+
+    # Validate src stays within repo
+    if not str(src).startswith(str(repo_root.resolve()) + "/"):
+        raise DotsError(
+            "Refusing to deploy '{}' — source escapes repo root".format(entry.src),
+            hint="The src path resolves outside the dotfiles repository.\n"
+                 "  Resolved: {}\n  Repo root: {}".format(src, repo_root.resolve()),
+        )
+
+    # Validate dst stays within $HOME
+    home = str(Path.home())
+    if not str(dst_resolved).startswith(home + "/") and str(dst_resolved) != home:
+        raise DotsError(
+            "Refusing to deploy to '{}' — destination is outside $HOME".format(entry.dst),
+            hint="dots only manages files under your home directory.\n"
+                 "  Resolved: {}\n  Home: {}".format(dst_resolved, home),
+        )
 
     if not src.exists():
         return "MISS"
@@ -64,8 +86,7 @@ def deploy_file(
             backup(dst)
             if dst.is_symlink():
                 dst.unlink()
-        dst.write_bytes(data)
-        _apply_mode(dst, entry.mode or "600")
+        _write_secret(dst, data, entry.mode or "600")
         return "OK"
 
     # Template: render and write
@@ -118,6 +139,16 @@ def deploy_file(
         shutil.copy2(str(src), str(dst))
         _apply_mode(dst, entry.mode)
         return "OK"
+
+
+def _write_secret(path: Path, data: bytes, mode_str: str) -> None:
+    """Write secret data with restricted permissions from the start."""
+    mode = int(mode_str, 8) if mode_str else 0o600
+    fd = os.open(str(path), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, mode)
+    try:
+        os.write(fd, data)
+    finally:
+        os.close(fd)
 
 
 def _apply_mode(path: Path, mode_str: str) -> None:

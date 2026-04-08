@@ -11,6 +11,7 @@ import dots.platform as _plat
 
 try:
     import jinja2  # type: ignore[import-untyped]
+    import jinja2.sandbox  # type: ignore[import-untyped]
 except ImportError:
     jinja2 = None  # type: ignore[assignment]
 
@@ -42,7 +43,7 @@ def render_template(src: Path, config: Config) -> str:
     ctx = build_template_context(config)
     try:
         template_str = src.read_text()
-        env = jinja2.Environment(undefined=jinja2.StrictUndefined)
+        env = jinja2.sandbox.SandboxedEnvironment(undefined=jinja2.StrictUndefined)
         tmpl = env.from_string(template_str)
         return tmpl.render(**ctx)
     except jinja2.UndefinedError as e:
