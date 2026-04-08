@@ -1,10 +1,6 @@
 """Tests for sensitive directory modes and file mode application."""
 
-import os
 import stat
-from pathlib import Path
-
-import pytest
 
 
 def test_ensure_parent_ssh_700(dots, tmp_home):

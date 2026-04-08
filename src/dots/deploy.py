@@ -6,9 +6,9 @@ import os
 import shutil
 from pathlib import Path
 
+import dots.platform as _plat
 from dots.config import Config, FileEntry
 from dots.errors import DotsError
-import dots.platform as _plat
 from dots.secrets import decrypt_file
 from dots.templates import render_template
 from dots.utils import backup, ensure_parent, expand, sha256_file
@@ -46,7 +46,7 @@ def deploy_file(
         raise DotsError(
             "Refusing to deploy '{}' — source escapes repo root".format(entry.src),
             hint="The src path resolves outside the dotfiles repository.\n"
-                 "  Resolved: {}\n  Repo root: {}".format(src, repo_root.resolve()),
+            "  Resolved: {}\n  Repo root: {}".format(src, repo_root.resolve()),
         )
 
     # Validate dst stays within $HOME
@@ -55,7 +55,7 @@ def deploy_file(
         raise DotsError(
             "Refusing to deploy to '{}' — destination is outside $HOME".format(entry.dst),
             hint="dots only manages files under your home directory.\n"
-                 "  Resolved: {}\n  Home: {}".format(dst_resolved, home),
+            "  Resolved: {}\n  Home: {}".format(dst_resolved, home),
         )
 
     if not src.exists():

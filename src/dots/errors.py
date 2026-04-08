@@ -21,14 +21,17 @@ class DotsError(Exception):
 
 class ConfigError(DotsError):
     """Configuration parse or validation error."""
+
     pass
 
 
 class DeployError(DotsError):
     """File deployment error."""
+
     pass
 
 
 class ToolInstallError(DotsError):
     """Tool installation error."""
+
     pass

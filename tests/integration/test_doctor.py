@@ -1,10 +1,7 @@
 """Integration tests for doctor checks and exit codes."""
 
 import os
-from pathlib import Path
 from unittest.mock import patch
-
-import pytest
 
 
 def test_doctor_passes_minimal(dots, tmp_repo, capsys):
@@ -13,7 +10,7 @@ def test_doctor_passes_minimal(dots, tmp_repo, capsys):
     config = dots.load_config(tmp_repo / "dots.toml", tmp_repo)
 
     with patch.dict(os.environ, {"PATH": os.environ.get("PATH", "") + ":~/.local/bin"}):
-        code = dots.cmd_doctor(config)
+        dots.cmd_doctor(config)
 
     output = capsys.readouterr().out
     assert "Python" in output

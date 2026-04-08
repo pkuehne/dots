@@ -14,18 +14,15 @@ from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
-from dots.config import Config, Tool, ToolInstall
-from dots.errors import DotsError, ToolInstallError
 import dots.platform as _plat
 import dots.utils as _utils
-from dots.utils import expand
+from dots.config import Tool, ToolInstall
+from dots.errors import ToolInstallError
 
 
 def tool_is_installed(tool: Tool) -> bool:
     try:
-        result = subprocess.run(
-            tool.check, shell=True, capture_output=True, text=True
-        )
+        result = subprocess.run(tool.check, shell=True, capture_output=True, text=True)
         return result.returncode == 0
     except Exception:
         return False
@@ -71,12 +68,16 @@ def github_get_latest_release(repo: str) -> dict:
             hint = "GitHub API rate limit exceeded (60 requests/hour for unauthenticated)"
             if reset:
                 import time as _time
+
                 try:
                     reset_time = int(reset) - int(_time.time())
                     hint += "\n\nResets in: {} minutes".format(max(1, reset_time // 60))
                 except (ValueError, TypeError):
                     pass
-            hint += "\n\nHint: Set GITHUB_TOKEN to raise the limit to 5000 req/hour:\n  export GITHUB_TOKEN=ghp_..."
+            hint += (
+                "\n\nHint: Set GITHUB_TOKEN to raise the limit to 5000 req/hour:"
+                "\n  export GITHUB_TOKEN=ghp_..."
+            )
             raise ToolInstallError(
                 "GitHub API rate limit exceeded for {}".format(repo),
                 hint=hint,
@@ -89,8 +90,8 @@ def github_get_latest_release(repo: str) -> dict:
         raise ToolInstallError(
             "Failed to reach GitHub API for repo {}".format(repo),
             hint="Reason: {}\n\nHints:\n"
-                 "· Are you behind a proxy? Set: export HTTPS_PROXY=http://proxy:3128\n"
-                 "· Check connectivity: curl https://api.github.com".format(e.reason),
+            "· Are you behind a proxy? Set: export HTTPS_PROXY=http://proxy:3128\n"
+            "· Check connectivity: curl https://api.github.com".format(e.reason),
         )
 
 
@@ -153,62 +154,63 @@ def install_github(tool: Tool, inst: ToolInstall, bin_dir: Path) -> None:
         if download_name.endswith(".tar.gz") or download_name.endswith(".tgz"):
             with tarfile.open(str(download_path), "r:gz") as tf:
                 _safe_tar_extractall(tf, tmppath / "extracted")
-            _find_and_install_binary(
-                tmppath / "extracted", binary_name, dest, inst.strip
-            )
+            _find_and_install_binary(tmppath / "extracted", binary_name, dest, inst.strip)
         elif download_name.endswith(".zip"):
             with zipfile.ZipFile(str(download_path), "r") as zf:
                 _safe_zip_extractall(zf, tmppath / "extracted")
-            _find_and_install_binary(
-                tmppath / "extracted", binary_name, dest, inst.strip
-            )
+            _find_and_install_binary(tmppath / "extracted", binary_name, dest, inst.strip)
         else:
             # Raw binary
             shutil.copy2(str(download_path), str(dest))
             dest.chmod(0o755)
 
 
+def _path_escapes(member_path: Path, dest: Path) -> bool:
+    resolved = dest.resolve()
+    return not str(member_path).startswith(str(resolved) + os.sep) and member_path != resolved
+
+
+_TRAVERSAL_HINT = "The archive contains a path traversal entry. This may be a malicious archive."
+_SYMLINK_HINT = "The archive contains an absolute symlink. This may be a malicious archive."
+
+
 def _safe_tar_extractall(tf: tarfile.TarFile, dest: Path) -> None:
     dest.mkdir(parents=True, exist_ok=True)
-    resolved_dest = dest.resolve()
     for member in tf.getmembers():
         member_path = (dest / member.name).resolve()
-        if not str(member_path).startswith(str(resolved_dest) + os.sep) and member_path != resolved_dest:
+        if _path_escapes(member_path, dest):
             raise ToolInstallError(
-                "Refusing to extract '{}' — path escapes target directory".format(member.name),
-                hint="The archive contains a path traversal entry. This may be a malicious archive.",
+                "Refusing to extract '{}' — path escapes target".format(member.name),
+                hint=_TRAVERSAL_HINT,
             )
         if member.issym() or member.islnk():
-            link_target = Path(member.linkname)
-            if link_target.is_absolute():
+            if Path(member.linkname).is_absolute():
                 raise ToolInstallError(
-                    "Refusing to extract symlink '{}' → '{}' — absolute symlink target".format(
-                        member.name, member.linkname),
-                    hint="The archive contains an absolute symlink. This may be a malicious archive.",
+                    "Refusing to extract symlink '{}' → '{}' — absolute target".format(
+                        member.name, member.linkname
+                    ),
+                    hint=_SYMLINK_HINT,
                 )
     # Use data filter on Python 3.12+ to strip dangerous metadata
-    if hasattr(tarfile, 'data_filter'):
-        tf.extractall(str(dest), filter='data')
+    if hasattr(tarfile, "data_filter"):
+        tf.extractall(str(dest), filter="data")
     else:
         tf.extractall(str(dest))
 
 
 def _safe_zip_extractall(zf: zipfile.ZipFile, dest: Path) -> None:
     dest.mkdir(parents=True, exist_ok=True)
-    resolved_dest = dest.resolve()
     for info in zf.infolist():
         member_path = (dest / info.filename).resolve()
-        if not str(member_path).startswith(str(resolved_dest) + os.sep) and member_path != resolved_dest:
+        if _path_escapes(member_path, dest):
             raise ToolInstallError(
-                "Refusing to extract '{}' — path escapes target directory".format(info.filename),
-                hint="The archive contains a path traversal entry. This may be a malicious archive.",
+                "Refusing to extract '{}' — path escapes target".format(info.filename),
+                hint=_TRAVERSAL_HINT,
             )
     zf.extractall(str(dest))
 
 
-def _find_and_install_binary(
-    extract_dir: Path, binary_name: str, dest: Path, strip: int
-) -> None:
+def _find_and_install_binary(extract_dir: Path, binary_name: str, dest: Path, strip: int) -> None:
     # Search for the binary in extracted files
     for root_path, dirs, files in os.walk(str(extract_dir)):
         for f in files:
@@ -293,5 +295,6 @@ def install_tool(tool: Tool, inst: ToolInstall, bin_dir: Path) -> str:
     else:
         raise ToolInstallError(
             "Unknown install method: {}".format(inst.method),
-            hint="Supported methods: pkg, apt, brew, cargo, go, pip, pipx, npm, github, script, manual",
+            hint="Supported methods: pkg, apt, brew, cargo, go, pip, pipx, npm,"
+            " github, script, manual",
         )

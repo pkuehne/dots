@@ -1,9 +1,6 @@
 """Tests for platform and architecture detection."""
 
-import os
 from unittest.mock import patch
-
-import pytest
 
 
 def test_detect_termux(dots):
@@ -14,22 +11,25 @@ def test_detect_termux(dots):
 
 def test_detect_linux(dots):
     """Linux detected on non-Termux Linux."""
-    with patch("os.path.isdir", return_value=False), \
-         patch("platform.system", return_value="Linux"):
+    with patch("os.path.isdir", return_value=False), patch("platform.system", return_value="Linux"):
         assert dots.detect_platform() == "linux"
 
 
 def test_detect_darwin(dots):
     """macOS detected."""
-    with patch("os.path.isdir", return_value=False), \
-         patch("platform.system", return_value="Darwin"):
+    with (
+        patch("os.path.isdir", return_value=False),
+        patch("platform.system", return_value="Darwin"),
+    ):
         assert dots.detect_platform() == "darwin"
 
 
 def test_detect_windows(dots):
     """Windows detected."""
-    with patch("os.path.isdir", return_value=False), \
-         patch("platform.system", return_value="Windows"):
+    with (
+        patch("os.path.isdir", return_value=False),
+        patch("platform.system", return_value="Windows"),
+    ):
         assert dots.detect_platform() == "windows"
 
 

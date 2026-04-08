@@ -1,11 +1,5 @@
 """Integration tests for bootstrapper insertion, update, uninit; marker idempotency."""
 
-import os
-from pathlib import Path
-from unittest.mock import patch
-
-import pytest
-
 
 def test_bootstrapper_into_empty_zshrc(dots, tmp_home):
     """Bootstrapper inserted into empty .zshrc."""
@@ -80,7 +74,7 @@ def test_bash_bootstrapper_posix(dots, tmp_home):
     """Bash bootstrapper uses [ ] not [[ ]] and . not source."""
     assert "[ -d" in dots.BASH_BOOTSTRAPPER
     assert "[ -f" in dots.BASH_BOOTSTRAPPER
-    assert ". \"$_dots_f\"" in dots.BASH_BOOTSTRAPPER
+    assert '. "$_dots_f"' in dots.BASH_BOOTSTRAPPER
 
 
 def test_zsh_bootstrapper_zsh_syntax(dots):

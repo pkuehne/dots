@@ -1,7 +1,5 @@
 """Tests for Jinja2 rendering and template context."""
 
-import os
-from pathlib import Path
 from unittest.mock import patch
 
 import pytest

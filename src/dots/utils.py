@@ -90,9 +90,7 @@ def run(cmd, shell=False, cwd=None, capture=True, check=True, env=None):
             hint="Make sure '{}' is installed and on your PATH.".format(binary),
         )
     except subprocess.CalledProcessError as e:
-        msg = "Command failed: {}".format(
-            " ".join(cmd) if isinstance(cmd, list) else cmd
-        )
+        msg = "Command failed: {}".format(" ".join(cmd) if isinstance(cmd, list) else cmd)
         stderr = e.stderr.strip() if e.stderr else ""
         hint = "Exit code: {}".format(e.returncode)
         if stderr:

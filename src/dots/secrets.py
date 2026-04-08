@@ -6,8 +6,8 @@ import shutil
 import subprocess
 from pathlib import Path
 
-from dots.errors import DotsError
 import dots.utils as _utils
+from dots.errors import DotsError
 
 
 def decrypt_file(src: Path, identity: Path) -> bytes:
@@ -15,17 +15,17 @@ def decrypt_file(src: Path, identity: Path) -> bytes:
         raise DotsError(
             "Cannot decrypt {} — 'age' not found on PATH".format(src.name),
             hint="Install age first:\n  dots tools install age\n"
-                 "Or download from: https://github.com/FiloSottile/age/releases",
+            "Or download from: https://github.com/FiloSottile/age/releases",
         )
     if not identity.exists():
         raise DotsError(
             "Failed to decrypt {}".format(src.name),
             hint="Reason: age identity file not found: {}\n\n"
-                 "Hint: Generate an age keypair with:\n"
-                 "  age-keygen -o {}\n"
-                 "Then set the public key as recipient in dots.toml:\n"
-                 "  [secrets]\n"
-                 "  recipient = \"age1...\"".format(identity, identity),
+            "Hint: Generate an age keypair with:\n"
+            "  age-keygen -o {}\n"
+            "Then set the public key as recipient in dots.toml:\n"
+            "  [secrets]\n"
+            '  recipient = "age1..."'.format(identity, identity),
         )
     result = subprocess.run(
         ["age", "--decrypt", "-i", str(identity), str(src)],
@@ -49,6 +49,6 @@ def encrypt_file(src: Path, recipient: str, output: Path) -> None:
     if not recipient:
         raise DotsError(
             "No recipient configured for encryption",
-            hint="Set in dots.toml:\n  [secrets]\n  recipient = \"age1...\"",
+            hint='Set in dots.toml:\n  [secrets]\n  recipient = "age1..."',
         )
     _utils.run(["age", "--encrypt", "-r", recipient, "-o", str(output), str(src)])

@@ -1,11 +1,5 @@
 """Integration tests for managed.gitconfig write + [include] insertion."""
 
-import os
-from pathlib import Path
-from unittest.mock import patch
-
-import pytest
-
 
 def test_git_init_generates_config(dots, tmp_home):
     """dots git init generates managed.gitconfig."""

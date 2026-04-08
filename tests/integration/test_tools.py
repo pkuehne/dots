@@ -1,21 +1,18 @@
 """Integration tests for install dispatch, method fallback, github mock."""
 
-import json
-import os
 import tarfile
 import zipfile
 from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
-
 
 # ── Security: archive extraction ────────────────────────────────────────────
 
 
 def test_tar_path_traversal_rejected(dots, tmp_path):
     """Tar archive with path traversal entry is rejected."""
-    from dots.tools import _safe_tar_extractall, ToolInstallError
+    from dots.tools import ToolInstallError, _safe_tar_extractall
 
     # Create a malicious tar with a ../../ path
     tar_path = tmp_path / "evil.tar.gz"
@@ -24,6 +21,7 @@ def test_tar_path_traversal_rejected(dots, tmp_path):
 
     with tarfile.open(str(tar_path), "w:gz") as tf:
         import io
+
         data = b"pwned"
         info = tarfile.TarInfo(name="../../etc/evil")
         info.size = len(data)
@@ -36,7 +34,7 @@ def test_tar_path_traversal_rejected(dots, tmp_path):
 
 def test_tar_absolute_symlink_rejected(dots, tmp_path):
     """Tar archive with absolute symlink target is rejected."""
-    from dots.tools import _safe_tar_extractall, ToolInstallError
+    from dots.tools import ToolInstallError, _safe_tar_extractall
 
     tar_path = tmp_path / "evil.tar.gz"
     extract_dir = tmp_path / "extracted"
@@ -49,13 +47,13 @@ def test_tar_absolute_symlink_rejected(dots, tmp_path):
         tf.addfile(info)
 
     with tarfile.open(str(tar_path), "r:gz") as tf:
-        with pytest.raises(ToolInstallError, match="absolute symlink"):
+        with pytest.raises(ToolInstallError, match="absolute target"):
             _safe_tar_extractall(tf, extract_dir)
 
 
 def test_zip_path_traversal_rejected(dots, tmp_path):
     """Zip archive with path traversal entry is rejected."""
-    from dots.tools import _safe_zip_extractall, ToolInstallError
+    from dots.tools import ToolInstallError, _safe_zip_extractall
 
     zip_path = tmp_path / "evil.zip"
     extract_dir = tmp_path / "extracted"
@@ -77,6 +75,7 @@ def test_safe_tar_extraction_works(dots, tmp_path):
     extract_dir = tmp_path / "extracted"
 
     import io
+
     with tarfile.open(str(tar_path), "w:gz") as tf:
         data = b"hello"
         info = tarfile.TarInfo(name="mybin")
@@ -99,8 +98,13 @@ def test_method_fallback_order(dots):
         dots.ToolInstall(method="cargo", package="ripgrep"),
     ]
 
-    with patch("dots.platform.detect_platform", return_value="linux"), \
-         patch("shutil.which", side_effect=lambda x: "/usr/bin/" + x if x in ("apt-get", "cargo") else None):
+    def _which(x):
+        return "/usr/bin/" + x if x in ("apt-get", "cargo") else None
+
+    with (
+        patch("dots.platform.detect_platform", return_value="linux"),
+        patch("shutil.which", side_effect=_which),
+    ):
         inst = dots.find_install_method(tool)
 
     assert inst is not None
@@ -114,8 +118,10 @@ def test_platform_filter_skips(dots):
         dots.ToolInstall(method="pkg", package="ripgrep", only=["termux"]),
     ]
 
-    with patch("dots.platform.detect_platform", return_value="linux"), \
-         patch("shutil.which", return_value="/usr/bin/pkg"):
+    with (
+        patch("dots.platform.detect_platform", return_value="linux"),
+        patch("shutil.which", return_value="/usr/bin/pkg"),
+    ):
         inst = dots.find_install_method(tool)
 
     assert inst is None
@@ -134,8 +140,10 @@ def test_unavailable_manager_skipped(dots):
             return "/usr/bin/cargo"
         return None
 
-    with patch("dots.platform.detect_platform", return_value="linux"), \
-         patch("shutil.which", side_effect=mock_which):
+    with (
+        patch("dots.platform.detect_platform", return_value="linux"),
+        patch("shutil.which", side_effect=mock_which),
+    ):
         inst = dots.find_install_method(tool)
 
     assert inst is not None
@@ -159,9 +167,11 @@ def test_install_apt(dots):
     tool = dots.Tool(name="rg")
     inst = dots.ToolInstall(method="apt", package="ripgrep")
 
-    with patch("dots.platform.detect_platform", return_value="linux"), \
-         patch("os.getuid", return_value=1000), \
-         patch("dots.utils.run") as mock_run:
+    with (
+        patch("dots.platform.detect_platform", return_value="linux"),
+        patch("os.getuid", return_value=1000),
+        patch("dots.utils.run") as mock_run,
+    ):
         result = dots.install_tool(tool, inst, Path("/tmp/bin"))
 
     assert result == "apt"
@@ -229,6 +239,7 @@ def test_install_unknown_method(dots):
 def test_glob_match(dots):
     """Asset glob pattern matching."""
     from dots.tools import _glob_match
+
     assert _glob_match("ripgrep-*.tar.gz", "ripgrep-14.1.0-x86_64-unknown-linux-musl.tar.gz")
     assert not _glob_match("ripgrep-*.zip", "ripgrep-14.1.0.tar.gz")
     assert _glob_match("bat-v*-aarch64-*", "bat-v0.24.0-aarch64-unknown-linux-musl.tar.gz")
@@ -236,9 +247,9 @@ def test_glob_match(dots):
 
 def test_github_rate_limit_error(dots):
     """GitHub rate limit gives helpful error."""
-    from urllib.error import HTTPError
-    from io import BytesIO
     from email.message import Message
+    from io import BytesIO
+    from urllib.error import HTTPError
 
     headers = Message()
     headers["X-RateLimit-Reset"] = "9999999999"

@@ -5,9 +5,9 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+import dots.platform as _plat
 from dots.config import Config, Tool
 from dots.constants import GENERATED_HEADER, MARKER_END, MARKER_START
-import dots.platform as _plat
 from dots.utils import expand
 
 

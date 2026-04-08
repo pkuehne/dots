@@ -13,6 +13,27 @@ dependencies = []
 [project.optional-dependencies]
 toml = ["tomli; python_version < '3.11'"]
 templates = ["jinja2"]
+dev = ["pytest", "ruff"]
 
 [project.scripts]
 dots = "dots.cli:main"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+target-version = "py310"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP"]
+ignore = [
+    "F403",  # star imports in __init__.py (intentional re-exports)
+    "F405",  # names from star imports (consequence of F403)
+    "UP031", # str.format() — will convert to f-strings separately
+    "UP032", # str.format() — will convert to f-strings separately
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["E741"]  # ambiguous variable names in test comprehensions
+"tests/conftest.py" = ["E402"]  # sys.path setup before import

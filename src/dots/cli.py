@@ -12,9 +12,9 @@ import sys
 import textwrap
 from pathlib import Path
 
+import dots.platform as _plat
 from dots.config import Config, load_config
 from dots.constants import (
-    GENERATED_HEADER,
     MARKER_START,
     SENSITIVE_DIRS,
     VERSION,
@@ -23,7 +23,6 @@ from dots.deploy import deploy_file, get_file_state, matches_platform
 from dots.discovery import discover_files, merge_file_entries
 from dots.errors import DotsError
 from dots.git import GIT_INCLUDE_BLOCK, generate_gitconfig
-import dots.platform as _plat
 from dots.presets import (
     TMUX_PRESET,
     generate_fzf_preset,
@@ -58,6 +57,7 @@ except ImportError:
 
 
 # ── Doctor ──────────────────────────────────────────────────────────────────
+
 
 def cmd_doctor(config: Config) -> int:
     warnings = 0
@@ -165,9 +165,7 @@ def cmd_doctor(config: Config) -> int:
                 ok("~/{} permissions: {:o}".format(dirname, actual))
             else:
                 warn(
-                    "~/{} permissions: {:o} (expected {:o})".format(
-                        dirname, actual, expected_mode
-                    )
+                    "~/{} permissions: {:o} (expected {:o})".format(dirname, actual, expected_mode)
                 )
 
     # Disk space
@@ -265,6 +263,7 @@ def cmd_migrate(config: Config, write: bool = False, plat: str = "") -> None:
 
 # ── CLI Commands ────────────────────────────────────────────────────────────
 
+
 def find_repo_root(start: Path = None) -> Path | None:
     if start is None:
         start = Path.cwd()
@@ -295,7 +294,8 @@ def cmd_init(directory: str = ".") -> None:
     (d / "shell").mkdir(exist_ok=True)
 
     # Minimal dots.toml
-    (d / "dots.toml").write_text(textwrap.dedent("""\
+    (d / "dots.toml").write_text(
+        textwrap.dedent("""\
         [meta]
         version = 1
 
@@ -304,7 +304,8 @@ def cmd_init(directory: str = ".") -> None:
 
         [git]
         managed = false
-    """))
+    """)
+    )
 
     print("✓ Initialized dots in {}".format(d))
     print("  Created: dots.toml, files/, files.d/, shell/")
@@ -340,7 +341,7 @@ def cmd_apply(
             result = deploy_file(entry, config, dry_run=dry_run, force_copy=force_copy)
             dst_display = entry.dst
             if dst_display.startswith(str(Path.home())):
-                dst_display = "~" + dst_display[len(str(Path.home())):]
+                dst_display = "~" + dst_display[len(str(Path.home())) :]
             print("  {:4s}  {}".format(result, dst_display))
         except DotsError as e:
             print(e.render())
@@ -541,7 +542,7 @@ def cmd_status(config: Config) -> None:
         state = get_file_state(entry, config)
         dst = entry.dst
         if dst.startswith(str(Path.home())):
-            dst = "~" + dst[len(str(Path.home())):]
+            dst = "~" + dst[len(str(Path.home())) :]
         print("  {:4s}  {}".format(state, dst))
 
     if config.shell.managed:
@@ -639,7 +640,7 @@ def cmd_add(config: Config, path: str, dest: str = "") -> None:
     home = str(Path.home())
     dst_str = str(src)
     if dst_str.startswith(home):
-        dst_str = "~" + dst_str[len(home):]
+        dst_str = "~" + dst_str[len(home) :]
 
     # Append to dots.toml
     toml_path = repo_root / "dots.toml"
@@ -663,7 +664,7 @@ def cmd_list(config: Config, show_all: bool = False) -> None:
             continue
         dst = entry.dst
         if dst.startswith(str(Path.home())):
-            dst = "~" + dst[len(str(Path.home())):]
+            dst = "~" + dst[len(str(Path.home())) :]
         print("  {:4s}  {}".format(state, dst))
 
 
@@ -694,6 +695,7 @@ def cmd_decrypt(config: Config, file_path: str, output: str = "") -> None:
 
 # ── CLI Argument Parser ─────────────────────────────────────────────────────
 
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="dots",
@@ -701,9 +703,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--version", action="version", version="dots {}".format(VERSION))
     parser.add_argument("--profile", default="", help="Activate a named profile")
-    parser.add_argument(
-        "--repo", default="", help="Path to dotfiles repository root"
-    )
+    parser.add_argument("--repo", default="", help="Path to dotfiles repository root")
 
     sub = parser.add_subparsers(dest="command")
 
@@ -717,9 +717,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_apply.add_argument(
         "-n", "--dry-run", action="store_true", help="Print actions without executing"
     )
-    p_apply.add_argument(
-        "-c", "--copy", action="store_true", help="Force copy mode"
-    )
+    p_apply.add_argument("-c", "--copy", action="store_true", help="Force copy mode")
     p_apply.add_argument("--profile", dest="apply_profile", default="")
 
     # preview
@@ -855,6 +853,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 # ── Main Dispatch ───────────────────────────────────────────────────────────
 
+
 def main(argv: list[str] = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -880,13 +879,11 @@ def main(argv: list[str] = None) -> int:
             raise DotsError(
                 "No dots.toml found",
                 hint="Searched from: {} (walked up to /)\n\n"
-                     "Hints:\n"
-                     "· Run from your dotfiles directory, or:\n"
-                     "· Create a new dots.toml:  dots init\n"
-                     "· Specify the repo:        dots --repo ~/dotfiles apply\n"
-                     "· Set the env var:         export DOTS_REPO=~/dotfiles".format(
-                    Path.cwd()
-                ),
+                "Hints:\n"
+                "· Run from your dotfiles directory, or:\n"
+                "· Create a new dots.toml:  dots init\n"
+                "· Specify the repo:        dots --repo ~/dotfiles apply\n"
+                "· Set the env var:         export DOTS_REPO=~/dotfiles".format(Path.cwd()),
             )
 
         # Check for DOTS_REPO env var
@@ -989,11 +986,13 @@ def main(argv: list[str] = None) -> int:
             file=sys.stderr,
         )
         import traceback
+
         traceback.print_exc(file=sys.stderr)
         return 1
 
 
 # ── Subcommand Dispatchers ──────────────────────────────────────────────────
+
 
 def dispatch_tools(config: Config, args) -> int:
     plat = _plat.detect_platform()
@@ -1012,10 +1011,13 @@ def dispatch_tools(config: Config, args) -> int:
         for t in tools:
             installed = tool_is_installed(t)
             status = "✓" if installed else "✗"
-            print("  {} {}{}".format(
-                status, t.name,
-                " — {}".format(t.desc) if t.desc else "",
-            ))
+            print(
+                "  {} {}{}".format(
+                    status,
+                    t.name,
+                    " — {}".format(t.desc) if t.desc else "",
+                )
+            )
         return 0
 
     elif args.tools_command == "install":

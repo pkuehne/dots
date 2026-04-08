@@ -18,7 +18,7 @@ def generate_fzf_preset(shell_name: str = "zsh") -> str:
         "",
         "# Use rg for file listing if available",
         "command -v rg >/dev/null 2>&1 && \\",
-        '    export FZF_DEFAULT_COMMAND="rg --files --hidden --glob \'!.git\'"',
+        "    export FZF_DEFAULT_COMMAND=\"rg --files --hidden --glob '!.git'\"",
         "",
         "# Shell key bindings — location varies by install method",
         "for _fzf_f in \\",
@@ -59,6 +59,7 @@ run '~/.tmux/plugins/tpm/tpm'
 
 
 # ── Login Shell Files ────────────────────────────────────────────────────────
+
 
 def generate_zprofile(config: Config) -> str:
     lines = [

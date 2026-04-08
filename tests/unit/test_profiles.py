@@ -2,8 +2,6 @@
 
 from unittest.mock import patch
 
-import pytest
-
 
 def test_platform_profile_auto_activated(dots, tmp_repo):
     """Platform profile auto-activated."""
@@ -15,8 +13,10 @@ EDITOR = "vim"
 [profiles.linux]
 env.EDITOR = "nvim"
 """)
-    with patch("dots.platform.detect_platform", return_value="linux"), \
-         patch("dots.platform.get_hostname", return_value="myhost"):
+    with (
+        patch("dots.platform.detect_platform", return_value="linux"),
+        patch("dots.platform.get_hostname", return_value="myhost"),
+    ):
         config = dots.load_config(toml, tmp_repo)
     assert config.env["EDITOR"] == "nvim"
 
@@ -31,8 +31,10 @@ EDITOR = "vim"
 [profiles.myhost]
 env.EDITOR = "code"
 """)
-    with patch("dots.platform.detect_platform", return_value="linux"), \
-         patch("dots.platform.get_hostname", return_value="myhost"):
+    with (
+        patch("dots.platform.detect_platform", return_value="linux"),
+        patch("dots.platform.get_hostname", return_value="myhost"),
+    ):
         config = dots.load_config(toml, tmp_repo)
     assert config.env["EDITOR"] == "code"
 
@@ -53,8 +55,10 @@ env.EDITOR = "code"
 [profiles.work]
 env.EDITOR = "emacs"
 """)
-    with patch("dots.platform.detect_platform", return_value="linux"), \
-         patch("dots.platform.get_hostname", return_value="myhost"):
+    with (
+        patch("dots.platform.detect_platform", return_value="linux"),
+        patch("dots.platform.get_hostname", return_value="myhost"),
+    ):
         config = dots.load_config(toml, tmp_repo, profile="work")
     assert config.env["EDITOR"] == "emacs"
 
@@ -81,8 +85,10 @@ env.DELTA = "hostname"
 [profiles.work]
 env.DELTA = "manual"
 """)
-    with patch("dots.platform.detect_platform", return_value="linux"), \
-         patch("dots.platform.get_hostname", return_value="myhost"):
+    with (
+        patch("dots.platform.detect_platform", return_value="linux"),
+        patch("dots.platform.get_hostname", return_value="myhost"),
+    ):
         config = dots.load_config(toml, tmp_repo, profile="work")
     assert config.env["ALPHA"] == "global"
     assert config.env["BETA"] == "platform"
@@ -102,7 +108,9 @@ def test_nonexistent_profile_ignored(dots, tmp_repo):
     """Non-existent manual profile is silently ignored."""
     toml = tmp_repo / "dots.toml"
     toml.write_text('[env]\nEDITOR = "vim"\n')
-    with patch("dots.platform.detect_platform", return_value="linux"), \
-         patch("dots.platform.get_hostname", return_value="myhost"):
+    with (
+        patch("dots.platform.detect_platform", return_value="linux"),
+        patch("dots.platform.get_hostname", return_value="myhost"),
+    ):
         config = dots.load_config(toml, tmp_repo, profile="nonexistent")
     assert config.env["EDITOR"] == "vim"

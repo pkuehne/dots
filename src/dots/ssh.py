@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
+import dots.platform as _plat
 from dots.config import Config
 from dots.constants import GENERATED_HEADER, SSH_KEYWORD_MAP
-import dots.platform as _plat
 from dots.utils import expand
 
 

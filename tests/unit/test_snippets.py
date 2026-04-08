@@ -2,8 +2,6 @@
 
 from unittest.mock import patch
 
-import pytest
-
 
 def test_env_snippet_format(dots):
     """010-env.sh has correct format."""

@@ -2,8 +2,6 @@
 
 from unittest.mock import patch
 
-import pytest
-
 
 def test_gitconfig_contains_user(dots):
     """managed.gitconfig contains [user] fields."""
@@ -79,7 +77,7 @@ def test_gitconfig_delta_when_installed(dots):
 
     assert "pager = delta" in result
     assert "[diff]" in result
-    assert 'tool = delta' in result
+    assert "tool = delta" in result
 
 
 def test_gitconfig_delta_omitted_when_missing(dots):

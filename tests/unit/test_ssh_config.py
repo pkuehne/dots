@@ -2,8 +2,6 @@
 
 from unittest.mock import patch
 
-import pytest
-
 
 def test_snake_to_ssh_keyword(dots):
     """snake_case keys map to SSH PascalCase keywords."""

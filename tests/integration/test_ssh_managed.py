@@ -1,11 +1,7 @@
 """Integration tests for SSH config write + Include insertion; permissions."""
 
-import os
 import stat
-from pathlib import Path
 from unittest.mock import patch
-
-import pytest
 
 
 def test_ssh_init_creates_config(dots, tmp_home):

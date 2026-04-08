@@ -7,8 +7,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from dots.errors import ConfigError
 import dots.platform as _plat
+from dots.errors import ConfigError
 
 # ── Optional TOML import ─────────────────────────────────────────────────────
 
@@ -22,6 +22,7 @@ except ImportError:
 
 
 # ── Dataclasses ──────────────────────────────────────────────────────────────
+
 
 @dataclass
 class MetaConfig:
@@ -176,12 +177,13 @@ class Config:
 
 # ── Parsing ──────────────────────────────────────────────────────────────────
 
+
 def load_toml(path: Path) -> dict:
     if tomllib is None:
         raise ConfigError(
             "Cannot parse TOML — no parser available",
             hint="Install tomli for Python < 3.11:\n  pip install tomli\n"
-                 "Or upgrade to Python 3.11+ which includes tomllib.",
+            "Or upgrade to Python 3.11+ which includes tomllib.",
         )
     try:
         with open(path, "rb") as f:
@@ -207,12 +209,13 @@ def parse_env(raw: dict) -> tuple[dict[str, str], list[EnvWhen]]:
         if key == "PATH":
             raise ConfigError(
                 "PATH must not appear in [env]",
-                hint="Use [shell] path instead:\n  [shell]\n  path = [\"~/.local/bin\", \"~/.cargo/bin\"]",
+                hint="Use [shell] path instead:\n"
+                '  [shell]\n  path = ["~/.local/bin", "~/.cargo/bin"]',
             )
         if not key.isupper():
             raise ConfigError(
                 "Environment key '{}' must be UPPERCASE".format(key),
-                hint="Rename to: {} = \"{}\"".format(key.upper(), value),
+                hint='Rename to: {} = "{}"'.format(key.upper(), value),
             )
         if key in env:
             raise ConfigError(
@@ -231,7 +234,8 @@ def parse_env(raw: dict) -> tuple[dict[str, str], list[EnvWhen]]:
         if not ew.key or not ew.value:
             raise ConfigError(
                 "[[env.when]] entry missing required 'key' or 'value'",
-                hint="Each [[env.when]] needs at minimum:\n  key = \"VAR_NAME\"\n  value = \"the value\"",
+                hint="Each [[env.when]] needs at minimum:\n"
+                '  key = "VAR_NAME"\n  value = "the value"',
             )
         env_when.append(ew)
 
@@ -250,7 +254,7 @@ def parse_tool(raw_tool: dict) -> Tool:
     if not t.name:
         raise ConfigError(
             "[[tool]] entry missing required 'name' field",
-            hint="Every tool needs a name:\n  [[tool]]\n  name = \"ripgrep\"",
+            hint='Every tool needs a name:\n  [[tool]]\n  name = "ripgrep"',
         )
     if not t.check:
         t.check = "which {}".format(t.name)
@@ -307,12 +311,13 @@ def parse_file_entry(raw: dict) -> FileEntry:
     if not src:
         raise ConfigError(
             "[[file]] entry missing required 'src' field",
-            hint="Every file entry needs:\n  [[file]]\n  src = \"files/.gitconfig\"\n  dst = \"~/.gitconfig\"",
+            hint="Every file entry needs:\n  [[file]]\n"
+            '  src = "files/.gitconfig"\n  dst = "~/.gitconfig"',
         )
     if not dst:
         raise ConfigError(
             "[[file]] entry for '{}' missing required 'dst' field".format(src),
-            hint="Add a destination:\n  dst = \"~/.gitconfig\"",
+            hint='Add a destination:\n  dst = "~/.gitconfig"',
         )
     return FileEntry(
         src=src,
@@ -331,7 +336,7 @@ def parse_repo_entry(raw: dict) -> RepoEntry:
     if not name:
         raise ConfigError(
             "[[repo]] entry missing required 'name' field",
-            hint="Every repo needs a name:\n  [[repo]]\n  name = \"tpm\"",
+            hint='Every repo needs a name:\n  [[repo]]\n  name = "tpm"',
         )
     return RepoEntry(
         name=name,
@@ -356,9 +361,7 @@ def deep_merge(base: dict, overrides: dict) -> dict:
     return result
 
 
-def resolve_profiles(
-    raw: dict, plat: str, hostname: str, manual: str
-) -> dict:
+def resolve_profiles(raw: dict, plat: str, hostname: str, manual: str) -> dict:
     profiles = raw.get("profiles", {})
     result = copy.deepcopy(raw)
 

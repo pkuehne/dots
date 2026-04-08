@@ -1,9 +1,5 @@
 """Tests for 010-env.sh and 020-path.sh generation."""
 
-from unittest.mock import patch
-
-import pytest
-
 
 def test_env_snippet_sorted(dots):
     """Environment variables are sorted alphabetically."""

@@ -1,11 +1,5 @@
 """Tests for file discovery from files/ and files.d/."""
 
-import os
-from pathlib import Path
-from unittest.mock import patch
-
-import pytest
-
 
 def test_files_dir_maps_to_home(dots, tmp_repo, tmp_home):
     """files/ with nested directories maps correctly to ~."""
@@ -97,11 +91,13 @@ def test_explicit_overrides_discovered(dots, tmp_repo, tmp_home):
     (tmp_repo / "files" / ".gitconfig").write_text("[user]")
 
     discovered = dots.discover_files(tmp_repo, "linux")
-    explicit = [dots.FileEntry(
-        src="files/.gitconfig",
-        dst="~/custom/.gitconfig",
-        mode="644",
-    )]
+    explicit = [
+        dots.FileEntry(
+            src="files/.gitconfig",
+            dst="~/custom/.gitconfig",
+            mode="644",
+        )
+    ]
     merged = dots.merge_file_entries(discovered, explicit)
     assert len(merged) == 1
     assert merged[0].dst == "~/custom/.gitconfig"
@@ -113,10 +109,12 @@ def test_explicit_new_src_appended(dots, tmp_repo, tmp_home):
     (tmp_repo / "files" / ".gitconfig").write_text("[user]")
 
     discovered = dots.discover_files(tmp_repo, "linux")
-    explicit = [dots.FileEntry(
-        src="extra/myfile",
-        dst="~/myfile",
-    )]
+    explicit = [
+        dots.FileEntry(
+            src="extra/myfile",
+            dst="~/myfile",
+        )
+    ]
     merged = dots.merge_file_entries(discovered, explicit)
     assert len(merged) == 2
 

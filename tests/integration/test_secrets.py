@@ -1,8 +1,6 @@
 """Integration tests for encrypt/decrypt (age mocked)."""
 
-import os
-from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -18,8 +16,10 @@ def test_decrypt_calls_age(dots, tmp_path):
     mock_result.returncode = 0
     mock_result.stdout = b"decrypted-content"
 
-    with patch("shutil.which", return_value="/usr/bin/age"), \
-         patch("subprocess.run", return_value=mock_result) as mock_run:
+    with (
+        patch("shutil.which", return_value="/usr/bin/age"),
+        patch("subprocess.run", return_value=mock_result) as mock_run,
+    ):
         data = dots.decrypt_file(src, identity)
 
     assert data == b"decrypted-content"
@@ -57,8 +57,7 @@ def test_encrypt_calls_age(dots, tmp_path):
     src.write_text("my secret")
     output = tmp_path / "secret.age"
 
-    with patch("shutil.which", return_value="/usr/bin/age"), \
-         patch("dots.utils.run") as mock_run:
+    with patch("shutil.which", return_value="/usr/bin/age"), patch("dots.utils.run") as mock_run:
         dots.encrypt_file(src, "age1abc...", output)
 
     cmd = mock_run.call_args[0][0]

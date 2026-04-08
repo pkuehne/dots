@@ -1,10 +1,5 @@
 """Tests for TOML parsing, profile layering, and config validation."""
 
-import os
-import textwrap
-from pathlib import Path
-from unittest.mock import patch
-
 import pytest
 
 

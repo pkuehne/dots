@@ -66,11 +66,8 @@ def discover_files(repo_root: Path, plat: str) -> list[FileEntry]:
     return discovered
 
 
-def merge_file_entries(
-    discovered: list[FileEntry], explicit: list[FileEntry]
-) -> list[FileEntry]:
+def merge_file_entries(discovered: list[FileEntry], explicit: list[FileEntry]) -> list[FileEntry]:
     result = list(discovered)
-    discovered_srcs = {e.src for e in discovered}
 
     for exp in explicit:
         found = False

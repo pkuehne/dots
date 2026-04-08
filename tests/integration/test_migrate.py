@@ -1,10 +1,6 @@
 """Integration tests for migrate scan, suggest, --write."""
 
-import os
-from pathlib import Path
 from unittest.mock import patch
-
-import pytest
 
 
 def test_migrate_finds_unmanaged(dots, tmp_repo, tmp_home, capsys):

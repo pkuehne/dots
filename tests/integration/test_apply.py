@@ -5,9 +5,6 @@ import stat
 from pathlib import Path
 from unittest.mock import patch
 
-import pytest
-
-
 # ── Security: path validation ───────────────────────────────────────────────
 
 
@@ -21,7 +18,7 @@ dst = "~/.stolen"
 
     with patch("dots.platform.detect_platform", return_value="linux"):
         config = dots.load_config(tmp_repo / "dots.toml", tmp_repo)
-        result = dots.cmd_apply(config)
+        dots.cmd_apply(config)
 
     assert not (tmp_home / ".stolen").exists()
 
@@ -38,7 +35,7 @@ link = false
 
     with patch("dots.platform.detect_platform", return_value="linux"):
         config = dots.load_config(tmp_repo / "dots.toml", tmp_repo)
-        result = dots.cmd_apply(config)
+        dots.cmd_apply(config)
 
     assert not Path("/tmp/pwned").exists()
 

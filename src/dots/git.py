@@ -45,9 +45,7 @@ def generate_gitconfig(config: Config) -> str:
     lines.append("")
 
     lines.append("[pull]")
-    lines.append(
-        "    rebase = {}".format("true" if config.git.pull_rebase else "false")
-    )
+    lines.append("    rebase = {}".format("true" if config.git.pull_rebase else "false"))
     lines.append("")
 
     if config.git.sign:

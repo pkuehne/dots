@@ -5,9 +5,9 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+import dots.platform as _plat
 from dots.config import Config
 from dots.errors import DotsError
-import dots.platform as _plat
 
 try:
     import jinja2  # type: ignore[import-untyped]

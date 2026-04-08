@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
+import dots.utils as _utils
 from dots.config import RepoEntry
 from dots.errors import DotsError
-import dots.utils as _utils
 from dots.utils import expand
 
 
@@ -15,11 +15,11 @@ def clone_repo(r: RepoEntry) -> str:
             raise DotsError(
                 "Cannot clone {} to {}".format(r.name, dst),
                 hint="Reason: Directory exists but is not a git repository\n\n"
-                     "Hint: If you want dots to manage this directory, remove it first:\n"
-                     "  rm -rf {}\n"
-                     "Then re-run: dots repos clone {}\n\n"
-                     "If you want to keep the existing installation, remove the [[repo]] entry\n"
-                     "from dots.toml or set a different dst.".format(dst, r.name),
+                "Hint: If you want dots to manage this directory, remove it first:\n"
+                "  rm -rf {}\n"
+                "Then re-run: dots repos clone {}\n\n"
+                "If you want to keep the existing installation, remove the [[repo]] entry\n"
+                "from dots.toml or set a different dst.".format(dst, r.name),
             )
         return "already"
     dst.parent.mkdir(parents=True, exist_ok=True)

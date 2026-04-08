@@ -3,7 +3,6 @@
 import os
 import shutil
 import sys
-import tempfile
 from pathlib import Path
 from unittest.mock import patch
 
@@ -27,8 +26,7 @@ def tmp_home(tmp_path):
     """Provide a temporary home directory."""
     home = tmp_path / "home"
     home.mkdir()
-    with patch.dict(os.environ, {"HOME": str(home)}), \
-         patch("pathlib.Path.home", return_value=home):
+    with patch.dict(os.environ, {"HOME": str(home)}), patch("pathlib.Path.home", return_value=home):
         yield home
 
 
@@ -64,14 +62,18 @@ def full_repo(tmp_path):
 @pytest.fixture
 def mock_platform(dots):
     """Context manager to mock platform detection."""
+
     def _mock(platform_name):
         return patch("dots.platform.detect_platform", return_value=platform_name)
+
     return _mock
 
 
 @pytest.fixture
 def mock_hostname(dots):
     """Context manager to mock hostname."""
+
     def _mock(hostname):
         return patch("dots.platform.get_hostname", return_value=hostname)
+
     return _mock

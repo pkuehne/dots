@@ -1,10 +1,5 @@
 """Integration tests for fzf/tmux preset generation and eject."""
 
-import os
-from pathlib import Path
-
-import pytest
-
 
 def test_fzf_preset_content(dots):
     """fzf preset has correct content."""
