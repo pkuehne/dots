@@ -6,7 +6,7 @@ build-backend = "hatchling.build"
 name = "dots"
 version = "0.1.0"
 description = "Dotfile management, tool installation, and shell environment generation"
-requires-python = ">=3.8"
+requires-python = ">=3.10"
 license = "MIT"
 dependencies = []
 

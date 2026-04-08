@@ -4,13 +4,12 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import List
 
 from dots.config import FileEntry
 from dots.utils import should_skip
 
 
-def discover_files(repo_root: Path, plat: str) -> List[FileEntry]:
+def discover_files(repo_root: Path, plat: str) -> list[FileEntry]:
     discovered = []
     home = Path.home()
 
@@ -68,8 +67,8 @@ def discover_files(repo_root: Path, plat: str) -> List[FileEntry]:
 
 
 def merge_file_entries(
-    discovered: List[FileEntry], explicit: List[FileEntry]
-) -> List[FileEntry]:
+    discovered: list[FileEntry], explicit: list[FileEntry]
+) -> list[FileEntry]:
     result = list(discovered)
     discovered_srcs = {e.src for e in discovered}
 

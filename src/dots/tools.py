@@ -11,7 +11,6 @@ import tarfile
 import tempfile
 import zipfile
 from pathlib import Path
-from typing import Optional
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
@@ -32,7 +31,7 @@ def tool_is_installed(tool: Tool) -> bool:
         return False
 
 
-def find_install_method(tool: Tool) -> Optional[ToolInstall]:
+def find_install_method(tool: Tool) -> ToolInstall | None:
     plat = _plat.detect_platform()
     managers = {
         "pkg": shutil.which("pkg"),

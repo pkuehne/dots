@@ -11,7 +11,6 @@ import subprocess
 import sys
 import textwrap
 from pathlib import Path
-from typing import List, Optional
 
 from dots.config import Config, load_config
 from dots.constants import (
@@ -266,7 +265,7 @@ def cmd_migrate(config: Config, write: bool = False, plat: str = "") -> None:
 
 # ── CLI Commands ────────────────────────────────────────────────────────────
 
-def find_repo_root(start: Path = None) -> Optional[Path]:
+def find_repo_root(start: Path = None) -> Path | None:
     if start is None:
         start = Path.cwd()
     current = start.resolve()
@@ -313,7 +312,7 @@ def cmd_init(directory: str = ".") -> None:
 
 def cmd_apply(
     config: Config,
-    file_args: List[str] = None,
+    file_args: list[str] = None,
     dry_run: bool = False,
     force_copy: bool = False,
 ) -> int:
@@ -856,7 +855,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 # ── Main Dispatch ───────────────────────────────────────────────────────────
 
-def main(argv: List[str] = None) -> int:
+def main(argv: list[str] = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
 

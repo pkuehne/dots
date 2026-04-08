@@ -7,7 +7,6 @@ import os
 import shutil
 import subprocess
 from pathlib import Path
-from typing import Optional
 
 from dots.constants import SENSITIVE_DIRS, SKIP_NAMES, SKIP_SUFFIXES
 from dots.errors import DotsError
@@ -29,7 +28,7 @@ def sha256_bytes(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
-def backup(path: Path) -> Optional[Path]:
+def backup(path: Path) -> Path | None:
     if not path.exists() and not path.is_symlink():
         return None
     bak = path.with_suffix(path.suffix + ".dots-bak")

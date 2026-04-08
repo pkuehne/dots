@@ -5,7 +5,7 @@ from __future__ import annotations
 import copy
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 from dots.errors import ConfigError
 import dots.platform as _plat
@@ -36,7 +36,7 @@ class ShellConfig:
     zshrc: str = "~/.zshrc"
     bashrc: str = "~/.bashrc"
     dir: str = "~/.config/dots/shell.d"
-    path: List[str] = field(default_factory=list)
+    path: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -59,8 +59,8 @@ class SSHConfig:
 @dataclass
 class SSHHost:
     host: str = ""
-    only: List[str] = field(default_factory=list)
-    options: Dict[str, Any] = field(default_factory=dict)
+    only: list[str] = field(default_factory=list)
+    options: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -70,9 +70,9 @@ class ToolsConfig:
 
 @dataclass
 class ToolShell:
-    env: Dict[str, str] = field(default_factory=dict)
+    env: dict[str, str] = field(default_factory=dict)
     init: str = ""
-    path: List[str] = field(default_factory=list)
+    path: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -92,7 +92,7 @@ class ToolInstall:
     version: str = ""
     script: str = ""
     note: str = ""
-    only: List[str] = field(default_factory=list)
+    only: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -100,10 +100,10 @@ class Tool:
     name: str = ""
     desc: str = ""
     check: str = ""
-    tags: List[str] = field(default_factory=list)
-    only: List[str] = field(default_factory=list)
+    tags: list[str] = field(default_factory=list)
+    only: list[str] = field(default_factory=list)
     profile: str = ""
-    install: List[ToolInstall] = field(default_factory=list)
+    install: list[ToolInstall] = field(default_factory=list)
     shell: ToolShell = field(default_factory=ToolShell)
     git: ToolGit = field(default_factory=ToolGit)
 
@@ -112,12 +112,12 @@ class Tool:
 class FileEntry:
     src: str = ""
     dst: str = ""
-    only: List[str] = field(default_factory=list)
+    only: list[str] = field(default_factory=list)
     profile: str = ""
     template: bool = False
     secret: bool = False
     mode: str = ""
-    link: Optional[bool] = None
+    link: bool | None = None
 
 
 @dataclass
@@ -129,7 +129,7 @@ class RepoEntry:
     ref: str = ""
     on_install: str = ""
     on_update: str = ""
-    only: List[str] = field(default_factory=list)
+    only: list[str] = field(default_factory=list)
     profile: str = ""
 
 
@@ -138,7 +138,7 @@ class EnvWhen:
     key: str = ""
     value: str = ""
     if_tool: str = ""
-    only: List[str] = field(default_factory=list)
+    only: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -156,18 +156,18 @@ class PresetsConfig:
 @dataclass
 class Config:
     meta: MetaConfig = field(default_factory=MetaConfig)
-    vars: Dict[str, Any] = field(default_factory=dict)
-    profiles: Dict[str, Dict[str, Any]] = field(default_factory=dict)
-    env: Dict[str, str] = field(default_factory=dict)
-    env_when: List[EnvWhen] = field(default_factory=list)
+    vars: dict[str, Any] = field(default_factory=dict)
+    profiles: dict[str, dict[str, Any]] = field(default_factory=dict)
+    env: dict[str, str] = field(default_factory=dict)
+    env_when: list[EnvWhen] = field(default_factory=list)
     shell: ShellConfig = field(default_factory=ShellConfig)
     git: GitConfig = field(default_factory=GitConfig)
     ssh: SSHConfig = field(default_factory=SSHConfig)
-    ssh_hosts: List[SSHHost] = field(default_factory=list)
+    ssh_hosts: list[SSHHost] = field(default_factory=list)
     tools_config: ToolsConfig = field(default_factory=ToolsConfig)
-    tools: List[Tool] = field(default_factory=list)
-    files: List[FileEntry] = field(default_factory=list)
-    repos: List[RepoEntry] = field(default_factory=list)
+    tools: list[Tool] = field(default_factory=list)
+    files: list[FileEntry] = field(default_factory=list)
+    repos: list[RepoEntry] = field(default_factory=list)
     secrets: SecretsConfig = field(default_factory=SecretsConfig)
     presets: PresetsConfig = field(default_factory=PresetsConfig)
     repo_root: Path = field(default_factory=lambda: Path("."))
@@ -194,7 +194,7 @@ def load_toml(path: Path) -> dict:
         )
 
 
-def parse_env(raw: dict) -> Tuple[Dict[str, str], List[EnvWhen]]:
+def parse_env(raw: dict) -> tuple[dict[str, str], list[EnvWhen]]:
     env_section = raw.get("env", {})
     env = {}
     env_when = []
@@ -373,8 +373,8 @@ def resolve_profiles(
 
 
 def load_config(
-    toml_path: Optional[Path] = None,
-    repo_root: Optional[Path] = None,
+    toml_path: Path | None = None,
+    repo_root: Path | None = None,
     profile: str = "",
 ) -> Config:
     if repo_root is None:

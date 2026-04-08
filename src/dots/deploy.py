@@ -5,7 +5,6 @@ from __future__ import annotations
 import os
 import shutil
 from pathlib import Path
-from typing import List
 
 from dots.config import Config, FileEntry
 from dots.errors import DotsError
@@ -15,7 +14,7 @@ from dots.templates import render_template
 from dots.utils import backup, ensure_parent, expand, sha256_file
 
 
-def matches_platform(only: List[str], plat: str) -> bool:
+def matches_platform(only: list[str], plat: str) -> bool:
     if not only:
         return True
     return plat in only

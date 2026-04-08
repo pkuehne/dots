@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
-from typing import Optional
 
 from dots.config import Config, Tool
 from dots.constants import GENERATED_HEADER, MARKER_END, MARKER_START
@@ -103,7 +102,7 @@ def generate_tool_snippet(tool: Tool, shell_name: str = "zsh") -> str:
     return "\n".join(lines) + "\n"
 
 
-def generate_custom_snippet(repo_root: Path) -> Optional[str]:
+def generate_custom_snippet(repo_root: Path) -> str | None:
     zshrc = repo_root / "files" / ".zshrc"
     if not zshrc.exists():
         return None
