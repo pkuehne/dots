@@ -1,0 +1,99 @@
+[meta]
+version = 1
+default_mode = "symlink"
+
+[vars]
+name = "Test User"
+
+[env]
+EDITOR = "nvim"
+VISUAL = "nvim"
+PAGER = "less"
+
+[[env.when]]
+key = "MANPAGER"
+value = "sh -c 'col -bx | bat -l man -p'"
+if_tool = "bat"
+
+[[env.when]]
+key = "COLORTERM"
+value = "truecolor"
+only = ["linux", "darwin"]
+
+[shell]
+managed = true
+dir = "~/.config/dots/shell.d"
+path = [
+  "~/.local/bin",
+  "~/.cargo/bin",
+]
+
+[git]
+managed = true
+name = "Test User"
+email = "test@example.com"
+editor = "nvim"
+default_branch = "main"
+
+[ssh]
+managed = true
+
+[[ssh.host]]
+host = "*.internal"
+user = "testuser"
+identity_file = "~/.ssh/id_ed25519"
+only = ["linux", "darwin"]
+
+[tools]
+bin_dir = "~/.local/bin"
+
+[[tool]]
+name = "ripgrep"
+desc = "Fast grep replacement"
+check = "rg --version"
+tags = ["search", "essential"]
+install = [
+  { method = "apt", package = "ripgrep", only = ["linux"] },
+]
+
+[[tool]]
+name = "bat"
+desc = "Better cat"
+check = "bat --version"
+tags = ["shell", "essential"]
+install = [
+  { method = "apt", package = "bat", only = ["linux"] },
+]
+[tool.shell.env]
+BAT_THEME = "ansi"
+
+[[tool]]
+name = "zoxide"
+desc = "Smarter cd"
+check = "zoxide --version"
+tags = ["shell"]
+install = [
+  { method = "cargo", package = "zoxide" },
+]
+[tool.shell]
+init = "eval \"$(zoxide init {shell})\""
+
+[[repo]]
+name = "tpm"
+repo = "tmux-plugins/tpm"
+dst = "~/.tmux/plugins/tpm"
+shallow = true
+
+[presets]
+fzf = false
+tmux = false
+
+[[file]]
+src = "files/.gitconfig"
+dst = "~/.gitconfig"
+
+[secrets]
+identity = "~/.config/dots/key.txt"
+
+[profiles.work]
+env.EDITOR = "code"

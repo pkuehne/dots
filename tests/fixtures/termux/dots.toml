@@ -1,0 +1,9 @@
+[meta]
+version = 1
+
+[env]
+EDITOR = "nano"
+
+[shell]
+managed = true
+path = ["~/.local/bin"]

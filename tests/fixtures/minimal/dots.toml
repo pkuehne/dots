@@ -1,0 +1,6 @@
+[meta]
+version = 1
+
+[git]
+name = "Test User"
+email = "test@example.com"
