@@ -1,0 +1,27 @@
+FROM python:3.12-slim
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    git \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Simulate Termux environment
+RUN mkdir -p /data/data/com.termux/files/home && \
+    useradd -d /data/data/com.termux/files/home -s /bin/bash tester && \
+    chown -R tester:tester /data/data/com.termux/files/home
+
+USER tester
+WORKDIR /data/data/com.termux/files/home
+ENV HOME=/data/data/com.termux/files/home
+
+COPY --chown=tester:tester . /tmp/dots-src
+RUN pip install --user --break-system-packages /tmp/dots-src && \
+    echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc
+
+ENV PATH="/data/data/com.termux/files/home/.local/bin:${PATH}"
+
+RUN dots --version
+
+COPY --chown=tester:tester tests/e2e/scenarios /data/data/com.termux/files/home/scenarios
+
+ENTRYPOINT ["/bin/bash"]
