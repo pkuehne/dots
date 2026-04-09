@@ -44,18 +44,18 @@ def deploy_file(
     # Validate src stays within repo
     if not str(src).startswith(str(repo_root.resolve()) + "/"):
         raise DotsError(
-            "Refusing to deploy '{}' — source escapes repo root".format(entry.src),
+            f"Refusing to deploy '{entry.src}' — source escapes repo root",
             hint="The src path resolves outside the dotfiles repository.\n"
-            "  Resolved: {}\n  Repo root: {}".format(src, repo_root.resolve()),
+            f"  Resolved: {src}\n  Repo root: {repo_root.resolve()}",
         )
 
     # Validate dst stays within $HOME
     home = str(Path.home())
     if not str(dst_resolved).startswith(home + "/") and str(dst_resolved) != home:
         raise DotsError(
-            "Refusing to deploy to '{}' — destination is outside $HOME".format(entry.dst),
+            f"Refusing to deploy to '{entry.dst}' — destination is outside $HOME",
             hint="dots only manages files under your home directory.\n"
-            "  Resolved: {}\n  Home: {}".format(dst_resolved, home),
+            f"  Resolved: {dst_resolved}\n  Home: {home}",
         )
 
     if not src.exists():
@@ -63,13 +63,13 @@ def deploy_file(
 
     if dry_run:
         if entry.secret:
-            return "DECRYPT → {}".format(dst)
+            return f"DECRYPT → {dst}"
         if entry.template:
-            return "RENDER → {}".format(dst)
+            return f"RENDER → {dst}"
         mode_str = "copy" if (force_copy or entry.link is False) else "symlink"
         if entry.link is True:
             mode_str = "symlink"
-        return "{} → {}".format(mode_str.upper(), dst)
+        return f"{mode_str.upper()} → {dst}"
 
     ensure_parent(dst)
 
@@ -141,7 +141,6 @@ def deploy_file(
 
 
 def _write_secret(path: Path, data: bytes, mode_str: str) -> None:
-    """Write secret data with restricted permissions from the start."""
     mode = int(mode_str, 8) if mode_str else 0o600
     fd = os.open(str(path), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, mode)
     try:

@@ -52,11 +52,11 @@ def find_install_method(tool: Tool) -> ToolInstall | None:
 
 
 def github_get_latest_release(repo: str) -> dict:
-    url = "https://api.github.com/repos/{}/releases/latest".format(repo)
+    url = f"https://api.github.com/repos/{repo}/releases/latest"
     headers = {"Accept": "application/vnd.github.v3+json"}
     token = os.environ.get("GITHUB_TOKEN")
     if token:
-        headers["Authorization"] = "token {}".format(token)
+        headers["Authorization"] = f"token {token}"
     req = Request(url, headers=headers)
     try:
         with urlopen(req, timeout=30) as resp:
@@ -71,7 +71,7 @@ def github_get_latest_release(repo: str) -> dict:
 
                 try:
                     reset_time = int(reset) - int(_time.time())
-                    hint += "\n\nResets in: {} minutes".format(max(1, reset_time // 60))
+                    hint += f"\n\nResets in: {max(1, reset_time // 60)} minutes"
                 except (ValueError, TypeError):
                     pass
             hint += (
@@ -79,19 +79,19 @@ def github_get_latest_release(repo: str) -> dict:
                 "\n  export GITHUB_TOKEN=ghp_..."
             )
             raise ToolInstallError(
-                "GitHub API rate limit exceeded for {}".format(repo),
+                f"GitHub API rate limit exceeded for {repo}",
                 hint=hint,
             )
         raise ToolInstallError(
-            "Failed to reach GitHub API for repo {}".format(repo),
-            hint="HTTP {}: {}".format(e.code, e.reason),
+            f"Failed to reach GitHub API for repo {repo}",
+            hint=f"HTTP {e.code}: {e.reason}",
         )
     except URLError as e:
         raise ToolInstallError(
-            "Failed to reach GitHub API for repo {}".format(repo),
-            hint="Reason: {}\n\nHints:\n"
+            f"Failed to reach GitHub API for repo {repo}",
+            hint=f"Reason: {e.reason}\n\nHints:\n"
             "· Are you behind a proxy? Set: export HTTPS_PROXY=http://proxy:3128\n"
-            "· Check connectivity: curl https://api.github.com".format(e.reason),
+            "· Check connectivity: curl https://api.github.com",
         )
 
 
@@ -99,7 +99,7 @@ def github_download_asset(url: str, dest: Path) -> None:
     headers = {"Accept": "application/octet-stream"}
     token = os.environ.get("GITHUB_TOKEN")
     if token:
-        headers["Authorization"] = "token {}".format(token)
+        headers["Authorization"] = f"token {token}"
     req = Request(url, headers=headers)
     with urlopen(req, timeout=120) as resp:
         dest.write_bytes(resp.read())
@@ -115,7 +115,7 @@ def install_github(tool: Tool, inst: ToolInstall, bin_dir: Path) -> None:
     goarch = _plat.detect_goarch()
 
     # Build asset pattern
-    asset_pattern = inst.asset or "{name}-{version}-*".format(name=tool.name, version=version)
+    asset_pattern = inst.asset or f"{tool.name}-{version}-*"
     asset_pattern = (
         asset_pattern.replace("{version}", version)
         .replace("{arch}", arch)
@@ -136,8 +136,8 @@ def install_github(tool: Tool, inst: ToolInstall, bin_dir: Path) -> None:
     if not matched:
         available = ", ".join(a["name"] for a in assets[:10])
         raise ToolInstallError(
-            "No matching asset for {} in {}@{}".format(tool.name, inst.repo, tag),
-            hint="Pattern: {}\nAvailable: {}".format(asset_pattern, available),
+            f"No matching asset for {tool.name} in {inst.repo}@{tag}",
+            hint=f"Pattern: {asset_pattern}\nAvailable: {available}",
         )
 
     # Download
@@ -180,15 +180,14 @@ def _safe_tar_extractall(tf: tarfile.TarFile, dest: Path) -> None:
         member_path = (dest / member.name).resolve()
         if _path_escapes(member_path, dest):
             raise ToolInstallError(
-                "Refusing to extract '{}' — path escapes target".format(member.name),
+                f"Refusing to extract '{member.name}' — path escapes target",
                 hint=_TRAVERSAL_HINT,
             )
         if member.issym() or member.islnk():
             if Path(member.linkname).is_absolute():
                 raise ToolInstallError(
-                    "Refusing to extract symlink '{}' → '{}' — absolute target".format(
-                        member.name, member.linkname
-                    ),
+                    f"Refusing to extract symlink '{member.name}' → "
+                    f"'{member.linkname}' — absolute target",
                     hint=_SYMLINK_HINT,
                 )
     # Use data filter on Python 3.12+ to strip dangerous metadata
@@ -204,7 +203,7 @@ def _safe_zip_extractall(zf: zipfile.ZipFile, dest: Path) -> None:
         member_path = (dest / info.filename).resolve()
         if _path_escapes(member_path, dest):
             raise ToolInstallError(
-                "Refusing to extract '{}' — path escapes target".format(info.filename),
+                f"Refusing to extract '{info.filename}' — path escapes target",
                 hint=_TRAVERSAL_HINT,
             )
     zf.extractall(str(dest))
@@ -220,7 +219,7 @@ def _find_and_install_binary(extract_dir: Path, binary_name: str, dest: Path, st
                 dest.chmod(0o755)
                 return
     raise ToolInstallError(
-        "Binary '{}' not found in archive".format(binary_name),
+        f"Binary '{binary_name}' not found in archive",
         hint="Check the 'binary' field in the install method.",
     )
 
@@ -241,7 +240,7 @@ def install_tool(tool: Tool, inst: ToolInstall, bin_dir: Path) -> str:
         if plat == "termux":
             raise ToolInstallError(
                 "Install method 'apt' requires sudo, which is not available on Termux",
-                hint="Use 'pkg' instead:\n  dots tools install {} --method pkg".format(tool.name),
+                hint=f"Use 'pkg' instead:\n  dots tools install {tool.name} --method pkg",
             )
         cmd = ["apt-get", "install", "-y", inst.package]
         if os.getuid() != 0:
@@ -294,7 +293,7 @@ def install_tool(tool: Tool, inst: ToolInstall, bin_dir: Path) -> str:
 
     else:
         raise ToolInstallError(
-            "Unknown install method: {}".format(inst.method),
+            f"Unknown install method: {inst.method}",
             hint="Supported methods: pkg, apt, brew, cargo, go, pip, pipx, npm,"
             " github, script, manual",
         )

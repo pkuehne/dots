@@ -22,9 +22,9 @@ def generate_fzf_preset(shell_name: str = "zsh") -> str:
         "",
         "# Shell key bindings — location varies by install method",
         "for _fzf_f in \\",
-        "    /usr/share/doc/fzf/examples/key-bindings.{shell}.sh \\".format(shell=shell_name),
-        "    /usr/share/fzf/key-bindings.{shell}.sh \\".format(shell=shell_name),
-        "    ~/.fzf.{shell}; do".format(shell=shell_name),
+        f"    /usr/share/doc/fzf/examples/key-bindings.{shell_name}.sh \\",
+        f"    /usr/share/fzf/key-bindings.{shell_name}.sh \\",
+        f"    ~/.fzf.{shell_name}; do",
         '    [ -f "$_fzf_f" ] && source "$_fzf_f" && break',
         "done",
         "unset _fzf_f",
@@ -71,7 +71,7 @@ def generate_zprofile(config: Config) -> str:
     ]
     # Env
     for key, value in sorted(config.env.items()):
-        lines.append('export {}="{}"'.format(key, value))
+        lines.append(f'export {key}="{value}"')
     lines.append("")
     # Path
     paths = list(config.shell.path)
@@ -86,9 +86,7 @@ def generate_zprofile(config: Config) -> str:
     for p in paths:
         expanded = expand(p)
         lines.append(
-            'case ":$PATH:" in *":{}:"*) ;; *) export PATH="{}:$PATH" ;; esac'.format(
-                expanded, expanded
-            )
+            f'case ":$PATH:" in *":{expanded}:"*) ;; *) export PATH="{expanded}:$PATH" ;; esac'
         )
     return "\n".join(lines) + "\n"
 

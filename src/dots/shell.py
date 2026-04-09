@@ -20,20 +20,16 @@ def generate_env_snippet(config: Config) -> str:
         "",
     ]
     for key, value in sorted(config.env.items()):
-        lines.append('export {}="{}"'.format(key, value))
+        lines.append(f'export {key}="{value}"')
 
     for ew in config.env_when:
         if ew.only and plat not in ew.only:
             continue
         if ew.if_tool:
             lines.append("")
-            lines.append(
-                'command -v {} >/dev/null 2>&1 && export {}="{}"'.format(
-                    ew.if_tool, ew.key, ew.value
-                )
-            )
+            lines.append(f'command -v {ew.if_tool} >/dev/null 2>&1 && export {ew.key}="{ew.value}"')
         else:
-            lines.append('export {}="{}"'.format(ew.key, ew.value))
+            lines.append(f'export {ew.key}="{ew.value}"')
 
     return "\n".join(lines) + "\n"
 
@@ -71,9 +67,7 @@ def generate_path_snippet(config: Config) -> str:
     for p in deduped:
         expanded = expand(p)
         lines.append(
-            'case ":$PATH:" in *":{}:"*) ;; *) export PATH="{}:$PATH" ;; esac'.format(
-                expanded, expanded
-            )
+            f'case ":$PATH:" in *":{expanded}:"*) ;; *) export PATH="{expanded}:$PATH" ;; esac'
         )
 
     return "\n".join(lines) + "\n"
@@ -82,7 +76,7 @@ def generate_path_snippet(config: Config) -> str:
 def generate_tool_snippet(tool: Tool, shell_name: str = "zsh") -> str:
     lines = [
         GENERATED_HEADER,
-        "# Source: [[tool]] {} shell.*".format(tool.name),
+        f"# Source: [[tool]] {tool.name} shell.*",
         "# Regenerate: dots apply",
         "",
         "command -v {} >/dev/null 2>&1 || return".format(
@@ -92,7 +86,7 @@ def generate_tool_snippet(tool: Tool, shell_name: str = "zsh") -> str:
     ]
 
     for key, value in sorted(tool.shell.env.items()):
-        lines.append('export {}="{}"'.format(key, value))
+        lines.append(f'export {key}="{value}"')
 
     if tool.shell.init:
         init_cmd = tool.shell.init.replace("{shell}", shell_name)
@@ -119,8 +113,8 @@ def generate_custom_snippet(repo_root: Path) -> str | None:
 
 # ── Shell Bootstrapper ──────────────────────────────────────────────────────
 
-ZSH_BOOTSTRAPPER = """\
-{marker_start}
+ZSH_BOOTSTRAPPER = f"""\
+{MARKER_START}
 _dots_d="${{XDG_CONFIG_HOME:-$HOME/.config}}/dots/shell.d"
 if [[ -d "$_dots_d" ]]; then
   for _dots_f in "$_dots_d"/[0-9]*.sh "$_dots_d"/[0-9]*.zsh; do
@@ -128,10 +122,10 @@ if [[ -d "$_dots_d" ]]; then
   done
   unset _dots_f _dots_d
 fi
-{marker_end}""".format(marker_start=MARKER_START, marker_end=MARKER_END)
+{MARKER_END}"""
 
-BASH_BOOTSTRAPPER = """\
-{marker_start}
+BASH_BOOTSTRAPPER = f"""\
+{MARKER_START}
 _dots_d="${{XDG_CONFIG_HOME:-$HOME/.config}}/dots/shell.d"
 if [ -d "$_dots_d" ]; then
   for _dots_f in "$_dots_d"/[0-9]*.sh "$_dots_d"/[0-9]*.bash; do
@@ -139,7 +133,7 @@ if [ -d "$_dots_d" ]; then
   done
   unset _dots_f _dots_d
 fi
-{marker_end}""".format(marker_start=MARKER_START, marker_end=MARKER_END)
+{MARKER_END}"""
 
 
 def idempotent_insert(path: Path, content: str) -> bool:

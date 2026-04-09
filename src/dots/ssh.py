@@ -24,12 +24,12 @@ def generate_ssh_config(config: Config) -> str:
     for host_entry in config.ssh_hosts:
         if host_entry.only and plat not in host_entry.only:
             continue
-        lines.append("Host {}".format(host_entry.host))
+        lines.append(f"Host {host_entry.host}")
         for key, value in host_entry.options.items():
             keyword = snake_to_ssh_keyword(key)
             if isinstance(value, bool):
                 value = "yes" if value else "no"
-            lines.append("    {} {}".format(keyword, value))
+            lines.append(f"    {keyword} {value}")
         lines.append("")
 
     return "\n".join(lines) + "\n"

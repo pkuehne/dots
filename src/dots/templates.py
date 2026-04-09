@@ -37,7 +37,7 @@ def build_template_context(config: Config) -> dict:
 def render_template(src: Path, config: Config) -> str:
     if jinja2 is None:
         raise DotsError(
-            "Cannot render template {} — jinja2 not installed".format(src.name),
+            f"Cannot render template {src.name} — jinja2 not installed",
             hint="Install jinja2:\n  pip install jinja2",
         )
     ctx = build_template_context(config)
@@ -49,6 +49,6 @@ def render_template(src: Path, config: Config) -> str:
     except jinja2.UndefinedError as e:
         available = ", ".join(sorted(ctx.keys()))
         raise DotsError(
-            "Template error in {}".format(src),
-            hint="Reason: {}\n\nAvailable vars: {}".format(e, available),
+            f"Template error in {src}",
+            hint=f"Reason: {e}\n\nAvailable vars: {available}",
         )

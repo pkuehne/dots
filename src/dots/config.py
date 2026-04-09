@@ -191,8 +191,8 @@ def load_toml(path: Path) -> dict:
     except Exception as e:
         msg = str(e)
         raise ConfigError(
-            "Failed to parse {}".format(path.name),
-            hint="{}".format(msg) + "\n\nTOML reference: https://toml.io/en/v1.0.0",
+            f"Failed to parse {path.name}",
+            hint=f"{msg}" + "\n\nTOML reference: https://toml.io/en/v1.0.0",
         )
 
 
@@ -214,12 +214,12 @@ def parse_env(raw: dict) -> tuple[dict[str, str], list[EnvWhen]]:
             )
         if not key.isupper():
             raise ConfigError(
-                "Environment key '{}' must be UPPERCASE".format(key),
-                hint='Rename to: {} = "{}"'.format(key.upper(), value),
+                f"Environment key '{key}' must be UPPERCASE",
+                hint=f'Rename to: {key.upper()} = "{value}"',
             )
         if key in env:
             raise ConfigError(
-                "Duplicate environment key: {}".format(key),
+                f"Duplicate environment key: {key}",
                 hint="Remove the duplicate entry from [env].",
             )
         env[key] = str(value)
@@ -257,7 +257,7 @@ def parse_tool(raw_tool: dict) -> Tool:
             hint='Every tool needs a name:\n  [[tool]]\n  name = "ripgrep"',
         )
     if not t.check:
-        t.check = "which {}".format(t.name)
+        t.check = f"which {t.name}"
 
     for raw_inst in raw_tool.get("install", []):
         inst = ToolInstall(
@@ -316,7 +316,7 @@ def parse_file_entry(raw: dict) -> FileEntry:
         )
     if not dst:
         raise ConfigError(
-            "[[file]] entry for '{}' missing required 'dst' field".format(src),
+            f"[[file]] entry for '{src}' missing required 'dst' field",
             hint='Add a destination:\n  dst = "~/.gitconfig"',
         )
     return FileEntry(

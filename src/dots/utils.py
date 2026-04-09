@@ -86,13 +86,13 @@ def run(cmd, shell=False, cwd=None, capture=True, check=True, env=None):
     except FileNotFoundError:
         binary = cmd[0] if isinstance(cmd, list) else cmd.split()[0]
         raise DotsError(
-            "Command not found: {}".format(binary),
-            hint="Make sure '{}' is installed and on your PATH.".format(binary),
+            f"Command not found: {binary}",
+            hint=f"Make sure '{binary}' is installed and on your PATH.",
         )
     except subprocess.CalledProcessError as e:
         msg = "Command failed: {}".format(" ".join(cmd) if isinstance(cmd, list) else cmd)
         stderr = e.stderr.strip() if e.stderr else ""
-        hint = "Exit code: {}".format(e.returncode)
+        hint = f"Exit code: {e.returncode}"
         if stderr:
             hint += "\n" + stderr
         raise DotsError(msg, hint=hint)

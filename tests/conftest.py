@@ -1,5 +1,3 @@
-"""Shared fixtures for dots test suite."""
-
 import os
 import shutil
 import sys
@@ -12,18 +10,9 @@ import pytest
 REPO_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(REPO_ROOT / "src"))
 
-import dots as dots_mod
-
-
-@pytest.fixture
-def dots():
-    """Return the dots module."""
-    return dots_mod
-
 
 @pytest.fixture
 def tmp_home(tmp_path):
-    """Provide a temporary home directory."""
     home = tmp_path / "home"
     home.mkdir()
     with patch.dict(os.environ, {"HOME": str(home)}), patch("pathlib.Path.home", return_value=home):
@@ -32,7 +21,6 @@ def tmp_home(tmp_path):
 
 @pytest.fixture
 def tmp_repo(tmp_path):
-    """Provide a temporary dotfiles repo directory."""
     repo = tmp_path / "dotfiles"
     repo.mkdir()
     (repo / "files").mkdir()
@@ -43,7 +31,6 @@ def tmp_repo(tmp_path):
 
 @pytest.fixture
 def minimal_repo(tmp_path):
-    """Copy the minimal fixture to a temp dir."""
     src = REPO_ROOT / "tests" / "fixtures" / "minimal"
     dst = tmp_path / "minimal"
     shutil.copytree(str(src), str(dst))
@@ -52,7 +39,6 @@ def minimal_repo(tmp_path):
 
 @pytest.fixture
 def full_repo(tmp_path):
-    """Copy the full fixture to a temp dir."""
     src = REPO_ROOT / "tests" / "fixtures" / "full"
     dst = tmp_path / "full"
     shutil.copytree(str(src), str(dst))
@@ -60,9 +46,7 @@ def full_repo(tmp_path):
 
 
 @pytest.fixture
-def mock_platform(dots):
-    """Context manager to mock platform detection."""
-
+def mock_platform():
     def _mock(platform_name):
         return patch("dots.platform.detect_platform", return_value=platform_name)
 
@@ -70,9 +54,7 @@ def mock_platform(dots):
 
 
 @pytest.fixture
-def mock_hostname(dots):
-    """Context manager to mock hostname."""
-
+def mock_hostname():
     def _mock(hostname):
         return patch("dots.platform.get_hostname", return_value=hostname)
 

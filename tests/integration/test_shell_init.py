@@ -1,108 +1,106 @@
 """Integration tests for bootstrapper insertion, update, uninit; marker idempotency."""
 
+from dots.constants import MARKER_END, MARKER_START
+from dots.shell import (
+    BASH_BOOTSTRAPPER,
+    ZSH_BOOTSTRAPPER,
+    idempotent_insert,
+    remove_marker_block,
+)
 
-def test_bootstrapper_into_empty_zshrc(dots, tmp_home):
-    """Bootstrapper inserted into empty .zshrc."""
+
+def test_bootstrapper_into_empty_zshrc(tmp_home):
     zshrc = tmp_home / ".zshrc"
     zshrc.write_text("")
 
-    dots.idempotent_insert(zshrc, dots.ZSH_BOOTSTRAPPER)
+    idempotent_insert(zshrc, ZSH_BOOTSTRAPPER)
 
     content = zshrc.read_text()
-    assert dots.MARKER_START in content
-    assert dots.MARKER_END in content
+    assert MARKER_START in content
+    assert MARKER_END in content
     assert "source" in content
     assert "[0-9]*.zsh" in content
 
 
-def test_bootstrapper_updated_existing(dots, tmp_home):
-    """Bootstrapper updated in existing .zshrc (marker replacement)."""
+def test_bootstrapper_updated_existing(tmp_home):
     zshrc = tmp_home / ".zshrc"
-    zshrc.write_text("# my config\n" + dots.ZSH_BOOTSTRAPPER + "\n# end\n")
+    zshrc.write_text("# my config\n" + ZSH_BOOTSTRAPPER + "\n# end\n")
 
     # Simulate update with slightly different content
-    new_bootstrap = dots.ZSH_BOOTSTRAPPER.replace("shell.d", "shell.d.v2")
-    dots.idempotent_insert(zshrc, new_bootstrap)
+    new_bootstrap = ZSH_BOOTSTRAPPER.replace("shell.d", "shell.d.v2")
+    idempotent_insert(zshrc, new_bootstrap)
 
     content = zshrc.read_text()
     assert "shell.d.v2" in content
     assert "# my config" in content
     assert "# end" in content
-    assert content.count(dots.MARKER_START) == 1
+    assert content.count(MARKER_START) == 1
 
 
-def test_bootstrapper_idempotent(dots, tmp_home):
-    """Bootstrapper does not duplicate if already present."""
+def test_bootstrapper_idempotent(tmp_home):
     zshrc = tmp_home / ".zshrc"
     zshrc.write_text("")
 
-    dots.idempotent_insert(zshrc, dots.ZSH_BOOTSTRAPPER)
+    idempotent_insert(zshrc, ZSH_BOOTSTRAPPER)
     content1 = zshrc.read_text()
 
-    changed = dots.idempotent_insert(zshrc, dots.ZSH_BOOTSTRAPPER)
+    changed = idempotent_insert(zshrc, ZSH_BOOTSTRAPPER)
     content2 = zshrc.read_text()
 
     assert content1 == content2
     assert changed is False
 
 
-def test_uninit_removes_stanza(dots, tmp_home):
-    """uninit removes stanza, leaves surrounding content intact."""
+def test_uninit_removes_stanza(tmp_home):
     zshrc = tmp_home / ".zshrc"
-    zshrc.write_text("# before\n" + dots.ZSH_BOOTSTRAPPER + "\n# after\n")
+    zshrc.write_text("# before\n" + ZSH_BOOTSTRAPPER + "\n# after\n")
 
-    removed = dots.remove_marker_block(zshrc)
+    removed = remove_marker_block(zshrc)
     assert removed is True
 
     content = zshrc.read_text()
-    assert dots.MARKER_START not in content
-    assert dots.MARKER_END not in content
+    assert MARKER_START not in content
+    assert MARKER_END not in content
     assert "# before" in content
     assert "# after" in content
 
 
-def test_uninit_no_stanza(dots, tmp_home):
-    """uninit on file without stanza returns False."""
+def test_uninit_no_stanza(tmp_home):
     zshrc = tmp_home / ".zshrc"
     zshrc.write_text("# just config\n")
 
-    removed = dots.remove_marker_block(zshrc)
+    removed = remove_marker_block(zshrc)
     assert removed is False
 
 
-def test_bash_bootstrapper_posix(dots, tmp_home):
-    """Bash bootstrapper uses [ ] not [[ ]] and . not source."""
-    assert "[ -d" in dots.BASH_BOOTSTRAPPER
-    assert "[ -f" in dots.BASH_BOOTSTRAPPER
-    assert '. "$_dots_f"' in dots.BASH_BOOTSTRAPPER
+def test_bash_bootstrapper_posix(tmp_home):
+    assert "[ -d" in BASH_BOOTSTRAPPER
+    assert "[ -f" in BASH_BOOTSTRAPPER
+    assert '. "$_dots_f"' in BASH_BOOTSTRAPPER
 
 
-def test_zsh_bootstrapper_zsh_syntax(dots):
-    """Zsh bootstrapper uses [[ ]] and source."""
-    assert "[[ -d" in dots.ZSH_BOOTSTRAPPER
-    assert "[[ -f" in dots.ZSH_BOOTSTRAPPER
-    assert "source" in dots.ZSH_BOOTSTRAPPER
+def test_zsh_bootstrapper_zsh_syntax():
+    assert "[[ -d" in ZSH_BOOTSTRAPPER
+    assert "[[ -f" in ZSH_BOOTSTRAPPER
+    assert "source" in ZSH_BOOTSTRAPPER
 
 
-def test_zsh_sources_sh_and_zsh(dots):
-    """Zsh bootstrapper sources .sh and .zsh files."""
-    assert "[0-9]*.sh" in dots.ZSH_BOOTSTRAPPER
-    assert "[0-9]*.zsh" in dots.ZSH_BOOTSTRAPPER
-    assert ".bash" not in dots.ZSH_BOOTSTRAPPER
+def test_zsh_sources_sh_and_zsh():
+    assert "[0-9]*.sh" in ZSH_BOOTSTRAPPER
+    assert "[0-9]*.zsh" in ZSH_BOOTSTRAPPER
+    assert ".bash" not in ZSH_BOOTSTRAPPER
 
 
-def test_bash_sources_sh_and_bash(dots):
-    """Bash bootstrapper sources .sh and .bash files."""
-    assert "[0-9]*.sh" in dots.BASH_BOOTSTRAPPER
-    assert "[0-9]*.bash" in dots.BASH_BOOTSTRAPPER
-    assert ".zsh" not in dots.BASH_BOOTSTRAPPER
+def test_bash_sources_sh_and_bash():
+    assert "[0-9]*.sh" in BASH_BOOTSTRAPPER
+    assert "[0-9]*.bash" in BASH_BOOTSTRAPPER
+    assert ".zsh" not in BASH_BOOTSTRAPPER
 
 
-def test_bootstrapper_into_new_file(dots, tmp_home):
-    """Bootstrapper creates file if it doesn't exist."""
+def test_bootstrapper_into_new_file(tmp_home):
     zshrc = tmp_home / ".zshrc"
     assert not zshrc.exists()
 
-    dots.idempotent_insert(zshrc, dots.ZSH_BOOTSTRAPPER)
+    idempotent_insert(zshrc, ZSH_BOOTSTRAPPER)
     assert zshrc.exists()
-    assert dots.MARKER_START in zshrc.read_text()
+    assert MARKER_START in zshrc.read_text()

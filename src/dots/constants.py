@@ -1,7 +1,5 @@
 """Constants used across the dots package."""
 
-from __future__ import annotations
-
 VERSION = "0.1.0"
 MARKER_START = "# >>> dots managed — do not edit between these markers >>>"
 MARKER_END = "# <<< dots managed <<<"

@@ -13,19 +13,19 @@ def clone_repo(r: RepoEntry) -> str:
     if dst.exists():
         if not (dst / ".git").exists():
             raise DotsError(
-                "Cannot clone {} to {}".format(r.name, dst),
+                f"Cannot clone {r.name} to {dst}",
                 hint="Reason: Directory exists but is not a git repository\n\n"
                 "Hint: If you want dots to manage this directory, remove it first:\n"
-                "  rm -rf {}\n"
-                "Then re-run: dots repos clone {}\n\n"
+                f"  rm -rf {dst}\n"
+                f"Then re-run: dots repos clone {r.name}\n\n"
                 "If you want to keep the existing installation, remove the [[repo]] entry\n"
-                "from dots.toml or set a different dst.".format(dst, r.name),
+                "from dots.toml or set a different dst.",
             )
         return "already"
     dst.parent.mkdir(parents=True, exist_ok=True)
     repo_url = r.repo
     if "/" in repo_url and "://" not in repo_url and "@" not in repo_url:
-        repo_url = "https://github.com/{}".format(repo_url)
+        repo_url = f"https://github.com/{repo_url}"
     cmd = ["git", "clone"]
     if r.shallow:
         cmd += ["--depth", "1"]

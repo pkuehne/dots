@@ -19,17 +19,17 @@ def generate_gitconfig(config: Config) -> str:
     if config.git.name or config.git.email:
         lines.append("[user]")
         if config.git.name:
-            lines.append("    name = {}".format(config.git.name))
+            lines.append(f"    name = {config.git.name}")
         if config.git.email:
-            lines.append("    email = {}".format(config.git.email))
+            lines.append(f"    email = {config.git.email}")
         if config.git.signingkey:
-            lines.append("    signingkey = {}".format(config.git.signingkey))
+            lines.append(f"    signingkey = {config.git.signingkey}")
         lines.append("")
 
     # Core
     core_lines = []
     if config.git.editor:
-        core_lines.append("    editor = {}".format(config.git.editor))
+        core_lines.append(f"    editor = {config.git.editor}")
     # Check for delta pager contribution
     for tool in config.tools:
         if tool.name == "delta" and tool.git.pager:
@@ -41,7 +41,7 @@ def generate_gitconfig(config: Config) -> str:
         lines.append("")
 
     lines.append("[init]")
-    lines.append("    defaultBranch = {}".format(config.git.default_branch))
+    lines.append(f"    defaultBranch = {config.git.default_branch}")
     lines.append("")
 
     lines.append("[pull]")
@@ -67,8 +67,8 @@ def generate_gitconfig(config: Config) -> str:
     return "\n".join(lines) + "\n"
 
 
-GIT_INCLUDE_BLOCK = """\
-{marker_start}
+GIT_INCLUDE_BLOCK = f"""\
+{MARKER_START}
 [include]
     path = ~/.config/dots/git/managed.gitconfig
-{marker_end}""".format(marker_start=MARKER_START, marker_end=MARKER_END)
+{MARKER_END}"""

@@ -2,73 +2,70 @@
 
 from unittest.mock import patch
 
+from dots.platform import detect_arch, detect_goarch, detect_os_name, detect_platform
 
-def test_detect_termux(dots):
-    """Termux detected via /data/data/com.termux."""
+
+def test_detect_termux():
     with patch("os.path.isdir", return_value=True):
-        assert dots.detect_platform() == "termux"
+        assert detect_platform() == "termux"
 
 
-def test_detect_linux(dots):
-    """Linux detected on non-Termux Linux."""
+def test_detect_linux():
     with patch("os.path.isdir", return_value=False), patch("platform.system", return_value="Linux"):
-        assert dots.detect_platform() == "linux"
+        assert detect_platform() == "linux"
 
 
-def test_detect_darwin(dots):
-    """macOS detected."""
+def test_detect_darwin():
     with (
         patch("os.path.isdir", return_value=False),
         patch("platform.system", return_value="Darwin"),
     ):
-        assert dots.detect_platform() == "darwin"
+        assert detect_platform() == "darwin"
 
 
-def test_detect_windows(dots):
-    """Windows detected."""
+def test_detect_windows():
     with (
         patch("os.path.isdir", return_value=False),
         patch("platform.system", return_value="Windows"),
     ):
-        assert dots.detect_platform() == "windows"
+        assert detect_platform() == "windows"
 
 
-def test_detect_arch_x86_64(dots):
+def test_detect_arch_x86_64():
     with patch("platform.machine", return_value="x86_64"):
-        assert dots.detect_arch() == "x86_64"
+        assert detect_arch() == "x86_64"
 
 
-def test_detect_arch_aarch64(dots):
+def test_detect_arch_aarch64():
     with patch("platform.machine", return_value="aarch64"):
-        assert dots.detect_arch() == "aarch64"
+        assert detect_arch() == "aarch64"
 
 
-def test_detect_arch_arm64(dots):
+def test_detect_arch_arm64():
     with patch("platform.machine", return_value="arm64"):
-        assert dots.detect_arch() == "aarch64"
+        assert detect_arch() == "aarch64"
 
 
-def test_detect_goarch_amd64(dots):
+def test_detect_goarch_amd64():
     with patch("platform.machine", return_value="x86_64"):
-        assert dots.detect_goarch() == "amd64"
+        assert detect_goarch() == "amd64"
 
 
-def test_detect_goarch_arm64(dots):
+def test_detect_goarch_arm64():
     with patch("platform.machine", return_value="aarch64"):
-        assert dots.detect_goarch() == "arm64"
+        assert detect_goarch() == "arm64"
 
 
-def test_detect_os_name_linux(dots):
+def test_detect_os_name_linux():
     with patch("dots.platform.detect_platform", return_value="linux"):
-        assert dots.detect_os_name() == "linux"
+        assert detect_os_name() == "linux"
 
 
-def test_detect_os_name_termux(dots):
-    """Termux reports as linux for OS name."""
+def test_detect_os_name_termux():
     with patch("dots.platform.detect_platform", return_value="termux"):
-        assert dots.detect_os_name() == "linux"
+        assert detect_os_name() == "linux"
 
 
-def test_detect_os_name_darwin(dots):
+def test_detect_os_name_darwin():
     with patch("dots.platform.detect_platform", return_value="darwin"):
-        assert dots.detect_os_name() == "darwin"
+        assert detect_os_name() == "darwin"
