@@ -6,20 +6,37 @@ See docs/architecture.md for a full overview.
 
 ## Commands
 
+```sh
 # Run tests
 pytest tests/
-
-# Run with coverage
-pytest tests/ --cov=dots --cov-report=term-missing
 
 # Run a specific test file
 pytest tests/unit/test_config.py -v
 
-# Type check (if mypy installed)
-mypy dots
+# Lint and format
+ruff check src/ tests/
+ruff format src/ tests/
 
-# Format (if black installed)
-black dots
+# Run e2e tests (requires Docker)
+./tests/e2e/run.sh
+```
+
+## Commits
+
+This project uses [Conventional Commits](https://www.conventionalcommits.org/) and release-please for automated releases.
+
+```
+feat: add SSH managed mode        # bumps minor
+fix: handle stale symlinks        # bumps patch
+feat!: breaking change            # bumps major (minor while < 1.0)
+chore: update CI                  # no version bump
+docs: update README               # no version bump
+test: add e2e scenario            # no version bump
+refactor: split cli module        # no version bump
+```
+
+Always use a conventional prefix. Keep the subject line under 70 characters.
+Use the body for detail when needed.
 
 ## Key invariants
 
