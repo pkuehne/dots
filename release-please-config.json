@@ -1,0 +1,12 @@
+{
+  "packages": {
+    ".": {
+      "release-type": "python",
+      "package-name": "dots",
+      "bump-minor-pre-major": true,
+      "extra-files": [
+        "src/dots/constants.py"
+      ]
+    }
+  }
+}
