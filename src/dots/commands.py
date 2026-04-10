@@ -436,6 +436,19 @@ def _apply_shell(config: Config, repo_root: Path, dry_run: bool) -> None:
             custom_path.write_text(custom)
             print("  OK     000-custom.sh")
 
+    # Install bootstrapper into shell rc files
+    for shell_name, rc_setting, bootstrapper in [
+        ("zsh", config.shell.zshrc, ZSH_BOOTSTRAPPER),
+        ("bash", config.shell.bashrc, BASH_BOOTSTRAPPER),
+    ]:
+        rc_path = expand(rc_setting)
+        if dry_run:
+            print(f"  WRITE  bootstrapper in {rc_path}")
+        else:
+            changed = idempotent_insert(rc_path, bootstrapper)
+            if changed:
+                print(f"  OK     bootstrapper installed in {rc_path}")
+
 
 def _apply_git(config: Config, dry_run: bool) -> None:
     print("\nGenerating git config...")
@@ -744,55 +757,7 @@ def dispatch_tools(config: Config, args) -> int:
 
 
 def dispatch_shell(config: Config, args) -> int:
-    if args.shell_command == "init":
-        shell_dir = expand(config.shell.dir)
-        shell_dir.mkdir(parents=True, exist_ok=True)
-
-        for shell_name in args.shells:
-            if shell_name == "zsh":
-                path = expand(config.shell.zshrc)
-                content = ZSH_BOOTSTRAPPER
-            elif shell_name == "bash":
-                path = expand(config.shell.bashrc)
-                content = BASH_BOOTSTRAPPER
-            else:
-                continue
-
-            if args.dry_run:
-                print(f"  Would install bootstrapper in {path}")
-            else:
-                changed = idempotent_insert(path, content)
-                if changed:
-                    print(f"  ✓ Bootstrapper installed in {path}")
-                else:
-                    print(f"  ✓ Bootstrapper already up-to-date in {path}")
-        return 0
-
-    elif args.shell_command == "uninit":
-        for shell_name in args.shells:
-            if shell_name == "zsh":
-                path = expand(config.shell.zshrc)
-            elif shell_name == "bash":
-                path = expand(config.shell.bashrc)
-            else:
-                continue
-            removed = remove_marker_block(path)
-            if removed:
-                print(f"  ✓ Bootstrapper removed from {path}")
-            else:
-                print(f"  — No bootstrapper found in {path}")
-        return 0
-
-    elif args.shell_command == "check":
-        for shell_name, rc_path in [("zsh", config.shell.zshrc), ("bash", config.shell.bashrc)]:
-            path = expand(rc_path)
-            if path.exists() and MARKER_START in path.read_text():
-                print(f"  ✓ {shell_name} bootstrapper installed")
-            else:
-                print(f"  ✗ {shell_name} bootstrapper not found")
-        return 0
-
-    elif args.shell_command == "show":
+    if args.shell_command == "show":
         if args.assembled:
             shell_dir = expand(config.shell.dir)
             if shell_dir.is_dir():

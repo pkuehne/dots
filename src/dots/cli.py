@@ -120,15 +120,6 @@ def build_parser() -> argparse.ArgumentParser:
     p_shell = sub.add_parser("shell", help="Manage shell integration")
     shell_sub = p_shell.add_subparsers(dest="shell_command")
 
-    p_shell_init = shell_sub.add_parser("init", help="Install bootstrapper")
-    p_shell_init.add_argument("--shells", nargs="*", default=["zsh", "bash"])
-    p_shell_init.add_argument("-n", "--dry-run", action="store_true")
-
-    p_shell_uninit = shell_sub.add_parser("uninit", help="Remove bootstrapper")
-    p_shell_uninit.add_argument("--shells", nargs="*", default=["zsh", "bash"])
-
-    shell_sub.add_parser("check", help="Show bootstrapper status")
-
     p_shell_show = shell_sub.add_parser("show", help="Print generated snippets")
     p_shell_show.add_argument("--assembled", action="store_true")
 
