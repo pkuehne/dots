@@ -104,3 +104,25 @@ def test_bootstrapper_into_new_file(tmp_home):
     idempotent_insert(zshrc, ZSH_BOOTSTRAPPER)
     assert zshrc.exists()
     assert MARKER_START in zshrc.read_text()
+
+
+def test_bootstrapper_creates_parent_dirs(tmp_home):
+    # e.g. zshrc = "~/.config/zsh/.zshrc" on a fresh system
+    zshrc = tmp_home / ".config" / "zsh" / ".zshrc"
+    assert not zshrc.parent.exists()
+
+    idempotent_insert(zshrc, ZSH_BOOTSTRAPPER)
+    assert zshrc.exists()
+    assert MARKER_START in zshrc.read_text()
+
+
+def test_bootstrapper_broken_symlink_replaces(tmp_home):
+    zshrc = tmp_home / ".zshrc"
+    zshrc.symlink_to(tmp_home / "nonexistent-target")
+    assert zshrc.is_symlink()
+    assert not zshrc.exists()
+
+    idempotent_insert(zshrc, ZSH_BOOTSTRAPPER)
+    assert zshrc.exists()
+    assert not zshrc.is_symlink()
+    assert MARKER_START in zshrc.read_text()
