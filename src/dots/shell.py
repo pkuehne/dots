@@ -138,6 +138,9 @@ fi
 
 def idempotent_insert(path: Path, content: str) -> bool:
     if not path.exists():
+        if path.is_symlink():
+            path.unlink()
+        path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(content + "\n")
         return True
 
