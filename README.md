@@ -8,19 +8,19 @@ Works on Linux, macOS, and Termux with zero mandatory dependencies.
 **With pipx (recommended):**
 
 ```sh
-pipx install git+https://github.com/peterkuehne/dots.git
+pipx install git+https://github.com/pkuehne/dots.git
 ```
 
 **Without pipx:**
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/peterkuehne/dots/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/pkuehne/dots/refs/heads/main/install.sh | sh
 ```
 
 Or clone and install directly:
 
 ```sh
-git clone https://github.com/peterkuehne/dots.git
+git clone https://github.com/pkuehne/dots.git
 cd dots
 python3 -m pip install --user .
 ```
@@ -234,7 +234,7 @@ All commands are idempotent. Running twice produces the same result.
 ## Development
 
 ```sh
-git clone https://github.com/peterkuehne/dots.git
+git clone https://github.com/pkuehne/dots.git
 cd dots
 pip install -e ".[dev]"
 pytest tests/
