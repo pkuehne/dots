@@ -193,3 +193,75 @@ def test_nested_dirs_created(tmp_repo, tmp_home):
         cmd_apply(config)
 
     assert (tmp_home / ".config" / "nvim" / "init.lua").is_symlink()
+
+
+# ── Shell managed via apply ──────────────────────────────────────────────────
+
+
+def test_apply_installs_bootstrapper(tmp_repo, tmp_home):
+    """dots apply with shell.managed should install bootstrapper in rc files."""
+    (tmp_repo / "dots.toml").write_text("""\
+[meta]
+version = 1
+
+[shell]
+managed = true
+""")
+    zshrc = tmp_home / ".zshrc"
+    bashrc = tmp_home / ".bashrc"
+
+    with patch("dots.platform.detect_platform", return_value="linux"):
+        config = load_config(tmp_repo / "dots.toml", tmp_repo)
+        cmd_apply(config)
+
+    from dots.constants import MARKER_START
+
+    assert zshrc.exists()
+    assert MARKER_START in zshrc.read_text()
+    assert bashrc.exists()
+    assert MARKER_START in bashrc.read_text()
+
+
+def test_apply_bootstrapper_idempotent(tmp_repo, tmp_home):
+    """Running apply twice should not duplicate the bootstrapper block."""
+    (tmp_repo / "dots.toml").write_text("""\
+[meta]
+version = 1
+
+[shell]
+managed = true
+""")
+
+    from dots.constants import MARKER_START
+
+    with patch("dots.platform.detect_platform", return_value="linux"):
+        config = load_config(tmp_repo / "dots.toml", tmp_repo)
+        cmd_apply(config)
+        cmd_apply(config)
+
+    zshrc_text = (tmp_home / ".zshrc").read_text()
+    assert zshrc_text.count(MARKER_START) == 1
+
+
+def test_apply_generates_shell_snippets(tmp_repo, tmp_home):
+    """dots apply with shell.managed should generate snippet files."""
+    (tmp_repo / "dots.toml").write_text("""\
+[meta]
+version = 1
+
+[shell]
+managed = true
+path = ["~/.local/bin"]
+
+[env]
+EDITOR = "vim"
+""")
+
+    with patch("dots.platform.detect_platform", return_value="linux"):
+        config = load_config(tmp_repo / "dots.toml", tmp_repo)
+        cmd_apply(config)
+
+    shell_dir = tmp_home / ".config" / "dots" / "shell.d"
+    assert (shell_dir / "010-env.sh").exists()
+    assert (shell_dir / "020-path.sh").exists()
+    assert "EDITOR" in (shell_dir / "010-env.sh").read_text()

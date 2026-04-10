@@ -42,19 +42,16 @@ assert_contains "path uses case guard" 'case ":$PATH:"' "$path_content"
 # user snippet deployed
 assert_file_exists "user snippet deployed" ~/.config/dots/shell.d/30-aliases.sh
 
-# ── shell show ──
-output=$(dots --repo ~/shell-repo shell show 2>&1)
-assert_contains "shell show has env" "EDITOR" "$output"
-
-# ── shell init ──
-dots --repo ~/shell-repo shell init --shells bash
+# ── bootstrapper installed by apply ──
+assert_file_exists ".zshrc exists" ~/.zshrc
+zshrc=$(cat ~/.zshrc)
+assert_contains "bootstrapper in .zshrc" "dots managed" "$zshrc"
 assert_file_exists ".bashrc exists" ~/.bashrc
 bashrc=$(cat ~/.bashrc)
 assert_contains "bootstrapper in .bashrc" "dots managed" "$bashrc"
 
-# ── shell uninit ──
-dots --repo ~/shell-repo shell uninit --shells bash
-bashrc_after=$(cat ~/.bashrc)
-assert_eq "bootstrapper removed from .bashrc" "false" "$(echo "$bashrc_after" | grep -q 'dots managed' && echo true || echo false)"
+# ── shell show ──
+output=$(dots --repo ~/shell-repo shell show 2>&1)
+assert_contains "shell show has env" "EDITOR" "$output"
 
 summary

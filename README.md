@@ -211,7 +211,6 @@ Files ending in `.age` under `files/` are decrypted automatically during apply.
 | `dots tools check` | Check which tools are installed |
 | `dots tools install` | Install missing tools |
 | `dots tools list` | List configured tools |
-| `dots shell init` | Install shell bootstrapper |
 | `dots shell show` | Print generated shell snippets |
 | `dots git init` | Enable managed git config |
 | `dots git show` | Print managed gitconfig |
