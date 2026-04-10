@@ -1,9 +1,9 @@
 #!/bin/sh
 # Bootstrap installer for dots.
-# Usage: curl -fsSL https://raw.githubusercontent.com/peterkuehne/dots/main/install.sh | sh
+# Usage: curl -fsSL https://raw.githubusercontent.com/pkuehne/dots/refs/heads/main/install.sh | sh
 set -eu
 
-REPO="https://github.com/peterkuehne/dots.git"
+REPO="https://github.com/pkuehne/dots.git"
 INSTALL_DIR="${DOTS_INSTALL_DIR:-$HOME/.local/share/dots}"
 BIN_DIR="${DOTS_BIN_DIR:-$HOME/.local/bin}"
 
