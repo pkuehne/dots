@@ -114,6 +114,9 @@ def install_github(tool: Tool, inst: ToolInstall, bin_dir: Path) -> None:
     os_name = _plat.detect_os_name()
     goarch = _plat.detect_goarch()
 
+    # Apply per-tool arch name overrides (for tools with mixed naming conventions)
+    arch = inst.arch_map.get(arch, arch)
+
     # Build asset pattern
     asset_pattern = inst.asset or f"{tool.name}-{version}-*"
     asset_pattern = (

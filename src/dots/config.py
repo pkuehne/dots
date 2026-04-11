@@ -94,6 +94,7 @@ class ToolInstall:
     script: str = ""
     note: str = ""
     only: list[str] = field(default_factory=list)
+    arch_map: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass
@@ -271,6 +272,7 @@ def parse_tool(raw_tool: dict) -> Tool:
             script=raw_inst.get("script", ""),
             note=raw_inst.get("note", ""),
             only=raw_inst.get("only", []),
+            arch_map=raw_inst.get("arch_map", {}),
         )
         t.install.append(inst)
 
