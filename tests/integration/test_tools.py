@@ -5,6 +5,7 @@ import tarfile
 import zipfile
 from pathlib import Path
 from unittest.mock import MagicMock, patch
+from urllib.parse import urlparse
 
 import pytest
 
@@ -290,7 +291,7 @@ def test_arch_map_remaps_aarch64_to_arm64(tmp_path):
 
     def fake_urlopen(req, **kwargs):
         url = req.full_url if hasattr(req, "full_url") else str(req)
-        if "api.github.com" in url:
+        if urlparse(url).hostname == "api.github.com":
             import json
             resp = MagicMock()
             resp.read.return_value = json.dumps(release).encode()
@@ -340,7 +341,7 @@ def test_arch_map_no_mapping_x86_64(tmp_path):
 
     def fake_urlopen(req, **kwargs):
         url = req.full_url if hasattr(req, "full_url") else str(req)
-        if "api.github.com" in url:
+        if urlparse(url).hostname == "api.github.com":
             import json
             resp = MagicMock()
             resp.read.return_value = json.dumps(release).encode()
