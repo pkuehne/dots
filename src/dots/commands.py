@@ -421,14 +421,25 @@ def _apply_shell(config: Config, repo_root: Path, dry_run: bool) -> None:
     for tool in config.tools:
         if not tool.shell.env and not tool.shell.init:
             continue
-        snippet = generate_tool_snippet(tool)
-        snippet_name = f"050-{tool.name}.sh"
-        snippet_path = shell_dir / snippet_name
-        if dry_run:
-            print(f"  WRITE  {snippet_name}")
+        if tool.shell.init and "{shell}" in tool.shell.init:
+            for shell_name, ext in [("zsh", ".zsh"), ("bash", ".bash")]:
+                snippet = generate_tool_snippet(tool, shell_name=shell_name)
+                snippet_name = f"050-{tool.name}{ext}"
+                snippet_path = shell_dir / snippet_name
+                if dry_run:
+                    print(f"  WRITE  {snippet_name}")
+                else:
+                    snippet_path.write_text(snippet)
+                    print(f"  OK     {snippet_name}")
         else:
-            snippet_path.write_text(snippet)
-            print(f"  OK     {snippet_name}")
+            snippet = generate_tool_snippet(tool, shell_name="bash")
+            snippet_name = f"050-{tool.name}.sh"
+            snippet_path = shell_dir / snippet_name
+            if dry_run:
+                print(f"  WRITE  {snippet_name}")
+            else:
+                snippet_path.write_text(snippet)
+                print(f"  OK     {snippet_name}")
 
     custom = generate_custom_snippet(repo_root)
     if custom:
@@ -805,8 +816,13 @@ def dispatch_shell(config: Config, args) -> int:
             print(generate_path_snippet(config))
             for tool in config.tools:
                 if tool.shell.env or tool.shell.init:
-                    print(f"# 050-{tool.name}.sh")
-                    print(generate_tool_snippet(tool))
+                    if tool.shell.init and "{shell}" in tool.shell.init:
+                        for shell_name, ext in [("zsh", ".zsh"), ("bash", ".bash")]:
+                            print(f"# 050-{tool.name}{ext}")
+                            print(generate_tool_snippet(tool, shell_name=shell_name))
+                    else:
+                        print(f"# 050-{tool.name}.sh")
+                        print(generate_tool_snippet(tool, shell_name="bash"))
         return 0
 
     elif args.shell_command == "clean":
@@ -816,7 +832,11 @@ def dispatch_shell(config: Config, args) -> int:
         expected = {"010-env.sh", "020-path.sh"}
         for tool in config.tools:
             if tool.shell.env or tool.shell.init:
-                expected.add(f"050-{tool.name}.sh")
+                if tool.shell.init and "{shell}" in tool.shell.init:
+                    expected.add(f"050-{tool.name}.zsh")
+                    expected.add(f"050-{tool.name}.bash")
+                else:
+                    expected.add(f"050-{tool.name}.sh")
         shell_src = config.repo_root / "shell"
         if shell_src.is_dir():
             for f in shell_src.iterdir():
