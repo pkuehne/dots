@@ -368,3 +368,90 @@ def test_arch_map_no_mapping_x86_64(tmp_path):
         install_github(tool, inst, tmp_path)
 
     assert (tmp_path / "lazygit").exists()
+
+
+def test_binary_path_picks_correct_file_when_name_collision(tmp_path):
+    """binary_path bypasses search; installs the exact file, not a same-named script."""
+    tool = Tool(name="cmake")
+    inst = ToolInstall(
+        method="github",
+        repo="Kitware/CMake",
+        asset="cmake-{version}-linux-x86_64.tar.gz",
+        binary="cmake",
+        binary_path="bin/cmake",
+    )
+
+    release = _fake_release(["cmake-1.0.0-linux-x86_64.tar.gz"])
+
+    # Archive has two files named 'cmake': the real binary at bin/cmake and a
+    # bash completion script at share/bash-completion/completions/cmake.
+    tar_bytes = io.BytesIO()
+    with tarfile.open(fileobj=tar_bytes, mode="w:gz") as tf:
+        binary_data = b"#!/bin/sh\necho cmake"
+        info = tarfile.TarInfo(name="bin/cmake")
+        info.size = len(binary_data)
+        tf.addfile(info, io.BytesIO(binary_data))
+
+        completion_data = b"# bash completion for cmake"
+        info2 = tarfile.TarInfo(name="share/bash-completion/completions/cmake")
+        info2.size = len(completion_data)
+        tf.addfile(info2, io.BytesIO(completion_data))
+    tar_bytes.seek(0)
+
+    def fake_urlopen(req, **kwargs):
+        url = req.full_url if hasattr(req, "full_url") else str(req)
+        if urlparse(url).hostname == "api.github.com":
+            import json
+
+            resp = MagicMock()
+            resp.read.return_value = json.dumps(release).encode()
+            resp.__enter__ = lambda s: s
+            resp.__exit__ = MagicMock(return_value=False)
+            return resp
+        resp = MagicMock()
+        resp.read.return_value = tar_bytes.read()
+        resp.__enter__ = lambda s: s
+        resp.__exit__ = MagicMock(return_value=False)
+        return resp
+
+    with (
+        patch("dots.platform.detect_arch", return_value="x86_64"),
+        patch("dots.platform.detect_goarch", return_value="amd64"),
+        patch("dots.platform.detect_os_name", return_value="linux"),
+        patch("dots.tools.urlopen", side_effect=fake_urlopen),
+    ):
+        install_github(tool, inst, tmp_path)
+
+    dest = tmp_path / "cmake"
+    assert dest.exists()
+    assert dest.read_bytes() == b"#!/bin/sh\necho cmake"
+
+
+def test_binary_path_missing_raises_error(tmp_path):
+    """binary_path that does not exist in the archive raises ToolInstallError."""
+    from dots.tools import _find_and_install_binary
+
+    extract_dir = tmp_path / "extracted"
+    extract_dir.mkdir()
+    (extract_dir / "cmake").write_bytes(b"binary")
+
+    with pytest.raises(ToolInstallError, match="binary_path"):
+        _find_and_install_binary(extract_dir, "cmake", tmp_path / "cmake", "bin/cmake")
+
+
+def test_shortest_path_wins_without_binary_path(tmp_path):
+    """Without binary_path, the shallowest match is preferred over a deeper one."""
+    from dots.tools import _find_and_install_binary
+
+    extract_dir = tmp_path / "extracted"
+    (extract_dir / "bin").mkdir(parents=True)
+    (extract_dir / "bin" / "cmake").write_bytes(b"real binary")
+    (extract_dir / "share" / "bash-completion" / "completions").mkdir(parents=True)
+    (extract_dir / "share" / "bash-completion" / "completions" / "cmake").write_bytes(
+        b"completion script"
+    )
+
+    dest = tmp_path / "cmake"
+    _find_and_install_binary(extract_dir, "cmake", dest)
+
+    assert dest.read_bytes() == b"real binary"
