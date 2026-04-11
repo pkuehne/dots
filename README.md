@@ -241,6 +241,10 @@ pytest tests/
 ruff check src/ tests/
 ```
 
+## Roadmap
+
+See [ROADMAP.md](ROADMAP.md) for planned features and improvements.
+
 ## License
 
 MIT
