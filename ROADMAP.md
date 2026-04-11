@@ -13,6 +13,7 @@ Contributions welcome — open an issue to discuss before starting larger items.
 - [ ] Shell completions via [shtab](https://github.com/iterative/shtab) (`dots completion bash/zsh/fish`)
 - [ ] Post-install hooks for tools (e.g. rebuild bat cache, run plugin install)
 - [ ] `files` list in `ToolInstall` — install multiple binaries from one archive (e.g. `cmake` + `cpack` + `ctest`), inspired by the [aqua registry](https://github.com/aquaproj/aqua-registry) `files[].src` pattern
+- [ ] Explicit shell selection — `[shell] shells = ["zsh"]` to opt in to specific shells rather than managing all detected shells; users wanting an unmanaged bash fallback should not have their `.bashrc` modified
 - [ ] Native `chsh` support (manage default shell)
 - [ ] `dots export <dir>` — copy all rendered/managed files into a plain directory (no symlinks, no dots dependency)
 - [ ] `dots remove` — unlink a managed file and restore original from backup
