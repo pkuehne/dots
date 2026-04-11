@@ -351,6 +351,9 @@ def cmd_apply(
     if not file_args:
         _apply_presets(config, dry_run)
 
+    if config.tools and not file_args:
+        errors += _apply_tools(config, dry_run)
+
     if config.shell.managed and config.shell.login and not file_args:
         _apply_login_shell(config, dry_run)
 
@@ -696,6 +699,36 @@ def cmd_decrypt(config: Config, file_path: str, output: str = "") -> None:
         out = src.with_suffix("")
     out.write_bytes(data)
     print(f"✓ Decrypted {src} → {out}")
+
+
+def _apply_tools(config: Config, dry_run: bool) -> int:
+    plat = _plat.detect_platform()
+    bin_dir = expand(config.tools_config.bin_dir)
+    tools = [t for t in config.tools if matches_platform(t.only, plat)]
+    if not tools:
+        return 0
+    print("\nInstalling tools...")
+    errors = 0
+    for t in tools:
+        if tool_is_installed(t):
+            print(f"  ✓ {t.name} (already installed)")
+            continue
+        inst = find_install_method(t)
+        if not inst:
+            print(f"  ✗ {t.name} — no suitable install method")
+            errors += 1
+            continue
+        if dry_run:
+            print(f"  → {t.name} via {inst.method}")
+            continue
+        try:
+            print(f"  Installing {t.name} via {inst.method}...")
+            method = install_tool(t, inst, bin_dir)
+            print(f"  ✓ {t.name} installed via {method}")
+        except DotsError as e:
+            print(e.render())
+            errors += 1
+    return errors
 
 
 # ── Subcommand dispatchers ──────────────────────────────────────────────────
