@@ -16,6 +16,7 @@ from dots.tools import (
     _safe_zip_extractall,
     find_install_method,
     github_get_latest_release,
+    install_github,
     install_tool,
     tool_is_installed,
 )
@@ -246,3 +247,118 @@ def test_github_rate_limit_error():
     with patch("dots.tools.urlopen", side_effect=err):
         with pytest.raises(ToolInstallError, match="rate limit"):
             github_get_latest_release("owner/repo")
+
+
+# ── arch_map: per-tool architecture name overrides ──────────────────────────
+
+
+def _fake_release(asset_names: list[str]) -> dict:
+    """Build a minimal GitHub release payload with the given asset names."""
+    return {
+        "tag_name": "v1.0.0",
+        "assets": [{"name": n, "browser_download_url": f"https://example.com/{n}"} for n in asset_names],
+    }
+
+
+def test_arch_map_remaps_aarch64_to_arm64(tmp_path):
+    """Tools like lazygit/nvim use arm64 (Go naming) on ARM despite x86_64 Linux naming."""
+    tool = Tool(name="lazygit")
+    inst = ToolInstall(
+        method="github",
+        repo="jesseduffield/lazygit",
+        asset="lazygit_{version}_Linux_{arch}.tar.gz",
+        arch_map={"aarch64": "arm64"},
+        binary="lazygit",
+    )
+
+    release = _fake_release([
+        "lazygit_1.0.0_Linux_x86_64.tar.gz",
+        "lazygit_1.0.0_Linux_arm64.tar.gz",
+    ])
+
+    # Create a minimal tar.gz with the binary so extraction succeeds
+    asset_name = "lazygit_1.0.0_Linux_arm64.tar.gz"
+    tar_bytes = io.BytesIO()
+    with tarfile.open(fileobj=tar_bytes, mode="w:gz") as tf:
+        data = b"#!/bin/sh\necho lazygit"
+        info = tarfile.TarInfo(name="lazygit")
+        info.size = len(data)
+        tf.addfile(info, io.BytesIO(data))
+    tar_bytes.seek(0)
+
+    release_json = io.BytesIO(str(release).replace("'", '"').encode())
+
+    def fake_urlopen(req, **kwargs):
+        url = req.full_url if hasattr(req, "full_url") else str(req)
+        if "api.github.com" in url:
+            import json
+            resp = MagicMock()
+            resp.read.return_value = json.dumps(release).encode()
+            resp.__enter__ = lambda s: s
+            resp.__exit__ = MagicMock(return_value=False)
+            return resp
+        resp = MagicMock()
+        resp.read.return_value = tar_bytes.read()
+        resp.__enter__ = lambda s: s
+        resp.__exit__ = MagicMock(return_value=False)
+        return resp
+
+    with (
+        patch("dots.platform.detect_arch", return_value="aarch64"),
+        patch("dots.platform.detect_goarch", return_value="arm64"),
+        patch("dots.platform.detect_os_name", return_value="Linux"),
+        patch("dots.tools.urlopen", side_effect=fake_urlopen),
+    ):
+        install_github(tool, inst, tmp_path)
+
+    assert (tmp_path / "lazygit").exists()
+
+
+def test_arch_map_no_mapping_x86_64(tmp_path):
+    """When no arch_map entry matches, {arch} passes through unchanged."""
+    tool = Tool(name="lazygit")
+    inst = ToolInstall(
+        method="github",
+        repo="jesseduffield/lazygit",
+        asset="lazygit_{version}_Linux_{arch}.tar.gz",
+        arch_map={"aarch64": "arm64"},
+        binary="lazygit",
+    )
+
+    release = _fake_release([
+        "lazygit_1.0.0_Linux_x86_64.tar.gz",
+        "lazygit_1.0.0_Linux_arm64.tar.gz",
+    ])
+
+    tar_bytes = io.BytesIO()
+    with tarfile.open(fileobj=tar_bytes, mode="w:gz") as tf:
+        data = b"#!/bin/sh\necho lazygit"
+        info = tarfile.TarInfo(name="lazygit")
+        info.size = len(data)
+        tf.addfile(info, io.BytesIO(data))
+    tar_bytes.seek(0)
+
+    def fake_urlopen(req, **kwargs):
+        url = req.full_url if hasattr(req, "full_url") else str(req)
+        if "api.github.com" in url:
+            import json
+            resp = MagicMock()
+            resp.read.return_value = json.dumps(release).encode()
+            resp.__enter__ = lambda s: s
+            resp.__exit__ = MagicMock(return_value=False)
+            return resp
+        resp = MagicMock()
+        resp.read.return_value = tar_bytes.read()
+        resp.__enter__ = lambda s: s
+        resp.__exit__ = MagicMock(return_value=False)
+        return resp
+
+    with (
+        patch("dots.platform.detect_arch", return_value="x86_64"),
+        patch("dots.platform.detect_goarch", return_value="amd64"),
+        patch("dots.platform.detect_os_name", return_value="Linux"),
+        patch("dots.tools.urlopen", side_effect=fake_urlopen),
+    ):
+        install_github(tool, inst, tmp_path)
+
+    assert (tmp_path / "lazygit").exists()
