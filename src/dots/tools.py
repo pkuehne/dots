@@ -157,11 +157,11 @@ def install_github(tool: Tool, inst: ToolInstall, bin_dir: Path) -> None:
         if download_name.endswith(".tar.gz") or download_name.endswith(".tgz"):
             with tarfile.open(str(download_path), "r:gz") as tf:
                 _safe_tar_extractall(tf, tmppath / "extracted")
-            _find_and_install_binary(tmppath / "extracted", binary_name, dest, inst.strip)
+            _find_and_install_binary(tmppath / "extracted", binary_name, dest, inst.binary_path)
         elif download_name.endswith(".zip"):
             with zipfile.ZipFile(str(download_path), "r") as zf:
                 _safe_zip_extractall(zf, tmppath / "extracted")
-            _find_and_install_binary(tmppath / "extracted", binary_name, dest, inst.strip)
+            _find_and_install_binary(tmppath / "extracted", binary_name, dest, inst.binary_path)
         else:
             # Raw binary
             shutil.copy2(str(download_path), str(dest))
@@ -212,15 +212,31 @@ def _safe_zip_extractall(zf: zipfile.ZipFile, dest: Path) -> None:
     zf.extractall(str(dest))
 
 
-def _find_and_install_binary(extract_dir: Path, binary_name: str, dest: Path, strip: int) -> None:
-    # Search for the binary in extracted files
-    for root_path, dirs, files in os.walk(str(extract_dir)):
-        for f in files:
-            if f == binary_name or f == binary_name.split("/")[-1]:
-                src = Path(root_path) / f
-                shutil.copy2(str(src), str(dest))
-                dest.chmod(0o755)
-                return
+def _find_and_install_binary(
+    extract_dir: Path, binary_name: str, dest: Path, binary_path: str = ""
+) -> None:
+    if binary_path:
+        src = extract_dir / binary_path
+        if not src.is_file():
+            raise ToolInstallError(
+                f"binary_path '{binary_path}' not found in archive",
+                hint="Check the 'binary_path' field in the install method.",
+            )
+        shutil.copy2(str(src), str(dest))
+        dest.chmod(0o755)
+        return
+    # Search for all files matching the binary name, pick the shallowest path
+    candidates = [
+        Path(root) / f
+        for root, _dirs, files in os.walk(str(extract_dir))
+        for f in files
+        if f == binary_name
+    ]
+    if candidates:
+        src = min(candidates, key=lambda p: len(p.parts))
+        shutil.copy2(str(src), str(dest))
+        dest.chmod(0o755)
+        return
     raise ToolInstallError(
         f"Binary '{binary_name}' not found in archive",
         hint="Check the 'binary' field in the install method.",

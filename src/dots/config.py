@@ -89,7 +89,7 @@ class ToolInstall:
     repo: str = ""
     asset: str = ""
     binary: str = ""
-    strip: int = 1
+    binary_path: str = ""
     version: str = ""
     script: str = ""
     note: str = ""
@@ -267,7 +267,7 @@ def parse_tool(raw_tool: dict) -> Tool:
             repo=raw_inst.get("repo", ""),
             asset=raw_inst.get("asset", ""),
             binary=raw_inst.get("binary", ""),
-            strip=raw_inst.get("strip", 1),
+            binary_path=raw_inst.get("binary_path", ""),
             version=raw_inst.get("version", ""),
             script=raw_inst.get("script", ""),
             note=raw_inst.get("note", ""),
