@@ -256,7 +256,10 @@ def _fake_release(asset_names: list[str]) -> dict:
     """Build a minimal GitHub release payload with the given asset names."""
     return {
         "tag_name": "v1.0.0",
-        "assets": [{"name": n, "browser_download_url": f"https://example.com/{n}"} for n in asset_names],
+        "assets": [
+            {"name": n, "browser_download_url": f"https://example.com/{n}"}
+            for n in asset_names
+        ],
     }
 
 
@@ -277,7 +280,6 @@ def test_arch_map_remaps_aarch64_to_arm64(tmp_path):
     ])
 
     # Create a minimal tar.gz with the binary so extraction succeeds
-    asset_name = "lazygit_1.0.0_Linux_arm64.tar.gz"
     tar_bytes = io.BytesIO()
     with tarfile.open(fileobj=tar_bytes, mode="w:gz") as tf:
         data = b"#!/bin/sh\necho lazygit"
@@ -285,8 +287,6 @@ def test_arch_map_remaps_aarch64_to_arm64(tmp_path):
         info.size = len(data)
         tf.addfile(info, io.BytesIO(data))
     tar_bytes.seek(0)
-
-    release_json = io.BytesIO(str(release).replace("'", '"').encode())
 
     def fake_urlopen(req, **kwargs):
         url = req.full_url if hasattr(req, "full_url") else str(req)
