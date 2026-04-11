@@ -258,8 +258,7 @@ def _fake_release(asset_names: list[str]) -> dict:
     return {
         "tag_name": "v1.0.0",
         "assets": [
-            {"name": n, "browser_download_url": f"https://example.com/{n}"}
-            for n in asset_names
+            {"name": n, "browser_download_url": f"https://example.com/{n}"} for n in asset_names
         ],
     }
 
@@ -275,10 +274,12 @@ def test_arch_map_remaps_aarch64_to_arm64(tmp_path):
         binary="lazygit",
     )
 
-    release = _fake_release([
-        "lazygit_1.0.0_Linux_x86_64.tar.gz",
-        "lazygit_1.0.0_Linux_arm64.tar.gz",
-    ])
+    release = _fake_release(
+        [
+            "lazygit_1.0.0_Linux_x86_64.tar.gz",
+            "lazygit_1.0.0_Linux_arm64.tar.gz",
+        ]
+    )
 
     # Create a minimal tar.gz with the binary so extraction succeeds
     tar_bytes = io.BytesIO()
@@ -293,6 +294,7 @@ def test_arch_map_remaps_aarch64_to_arm64(tmp_path):
         url = req.full_url if hasattr(req, "full_url") else str(req)
         if urlparse(url).hostname == "api.github.com":
             import json
+
             resp = MagicMock()
             resp.read.return_value = json.dumps(release).encode()
             resp.__enter__ = lambda s: s
@@ -326,10 +328,12 @@ def test_arch_map_no_mapping_x86_64(tmp_path):
         binary="lazygit",
     )
 
-    release = _fake_release([
-        "lazygit_1.0.0_Linux_x86_64.tar.gz",
-        "lazygit_1.0.0_Linux_arm64.tar.gz",
-    ])
+    release = _fake_release(
+        [
+            "lazygit_1.0.0_Linux_x86_64.tar.gz",
+            "lazygit_1.0.0_Linux_arm64.tar.gz",
+        ]
+    )
 
     tar_bytes = io.BytesIO()
     with tarfile.open(fileobj=tar_bytes, mode="w:gz") as tf:
@@ -343,6 +347,7 @@ def test_arch_map_no_mapping_x86_64(tmp_path):
         url = req.full_url if hasattr(req, "full_url") else str(req)
         if urlparse(url).hostname == "api.github.com":
             import json
+
             resp = MagicMock()
             resp.read.return_value = json.dumps(release).encode()
             resp.__enter__ = lambda s: s
