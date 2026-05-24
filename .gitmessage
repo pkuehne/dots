@@ -1,0 +1,16 @@
+# <type>(<scope>): <subject>        ← 70 chars max; imperative mood
+#
+# type  : feat | fix | refactor | test | docs | chore | ci | perf | revert
+# scope : optional; e.g. config, tools, deploy, shell, git, ssh, secrets
+# !     : append before the colon to flag a breaking change
+#
+# Body (required) — blank line after subject, wrap at 72 chars.
+# Summarise what changed and explain WHY this approach was chosen.
+# Call out any decisions, trade-offs, or alternatives that came up
+# during implementation — especially if there were open questions or
+# back-and-forth before settling on this solution.
+
+
+# Footer (optional)
+# BREAKING CHANGE: <description>
+# Closes #<issue>
