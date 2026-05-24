@@ -7,3 +7,6 @@ dist/
 build/
 .mypy_cache/
 .venv/
+
+# Go
+bin/

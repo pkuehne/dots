@@ -4,21 +4,25 @@
 
 See docs/architecture.md for a full overview.
 
+This branch (`feat/migrate-to-golang`) is a Go rewrite. The Python source under
+`src/dots/` is kept for reference. The Go code lives under `cmd/` and `internal/`.
+
 ## Commands
 
 ```sh
-# Run tests
+# Build
+just build          # → bin/dots
+go build ./...      # compile check
+
+# Test
+just test           # go test ./...
+
+# Format / vet
+just fmt
+just vet
+
+# Python tests (kept for reference during migration)
 pytest tests/
-
-# Run a specific test file
-pytest tests/unit/test_config.py -v
-
-# Lint and format
-ruff check src/ tests/
-ruff format src/ tests/
-
-# Run e2e tests (requires Docker)
-./tests/e2e/run.sh
 ```
 
 ## Commits
@@ -38,10 +42,28 @@ refactor: split cli module        # no version bump
 Always use a conventional prefix. Keep the subject line under 70 characters.
 Use the body for detail when needed.
 
+## Go package layout
+
+```
+cmd/dots/         CLI entry point + cobra command stubs
+internal/config/  Config structs + Load() (stub)
+internal/platform/ OS/arch detection (implemented)
+internal/errs/    DotsError, ConfigError, ToolInstallError
+internal/discovery/ File discovery (stub)
+internal/deploy/  File deployment — symlink/copy/render (stub)
+internal/shell/   Shell snippet generation (stub)
+internal/git/     Git config generation (stub)
+internal/ssh/     SSH config generation (stub)
+internal/tools/   Tool installation (stub)
+internal/repos/   Repo cloning (stub)
+internal/secrets/ age encrypt/decrypt (stub)
+internal/presets/ Preset generation (stub)
+```
+
 ## Key invariants
 
-1. dots is a Python package under src/dots/. Entry point: dots.cli:main.
-2. No mandatory third-party imports. All optional deps are guarded.
+1. dots binary lives at cmd/dots/main.go. Entry: cobra root command.
+2. No mandatory third-party imports beyond cobra and BurntSushi/toml.
 3. Every user-facing operation is idempotent. Running twice = same result.
 4. No operation modifies anything outside ~. No /etc, no /usr.
 5. Dry run (--dry-run) must produce zero side effects.
@@ -72,10 +94,10 @@ Use the body for detail when needed.
 4. Add test cases in tests/unit/test_tools.py
 5. Document in docs/configuration.md
 
-## Common patterns
+## Common patterns (to be implemented)
 
-- expand(path): resolves ~ and $VAR in a path string → Path
-- run(cmd): subprocess.run with error handling and good error messages
-- idempotent_insert(path, content, marker): marker-delimited block insert/update
-- sha256_file(path): content hash for change detection
-- backup(path): copies file to path.dots-bak before overwriting
+- `expand(path)`: resolve `~` and `$VAR` → absolute path
+- `run(cmd)`: exec with structured error wrapping
+- `idempotentInsert(path, content, marker)`: marker-delimited block insert/update
+- `sha256File(path)`: content hash for change detection
+- `backup(path)`: copy to `path.dots-bak` before overwriting
