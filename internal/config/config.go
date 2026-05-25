@@ -4,6 +4,8 @@ package config
 import (
 	"os"
 	"path/filepath"
+
+	"github.com/pkuehne/dots/internal/errs"
 )
 
 // ── Structs ──────────────────────────────────────────────────────────────────
@@ -204,8 +206,58 @@ func Load(repoRoot, profile string) (Config, error) {
 	panic("Load: not yet implemented — see parse.go")
 }
 
-// FindRepoRoot walks up from cwd looking for dots.toml, then checks $DOTS_REPO.
-// Returns an error if no repo root is found.
+// FindRepoRoot resolves the dotfiles repository root using this precedence:
+//  1. explicit path (--repo flag)
+//  2. $DOTS_REPO environment variable
+//  3. current directory, if it contains dots.toml or a files/ subdirectory
+//
+// It does not walk up the tree — dots must be run from inside the repo, or the
+// location must be given explicitly.
 func FindRepoRoot(explicit string) (string, error) {
-	panic("FindRepoRoot: not yet implemented")
+	if explicit != "" {
+		return resolveRepoAt(explicit)
+	}
+	if env := os.Getenv("DOTS_REPO"); env != "" {
+		return resolveRepoAt(env)
+	}
+	cwd, err := os.Getwd()
+	if err != nil {
+		return "", errs.NewConfig("cannot determine current directory", err.Error())
+	}
+	if isRepoRoot(cwd) {
+		return cwd, nil
+	}
+	return "", errs.NewConfig(
+		"no dots repository found in current directory",
+		"Run dots from inside your dotfiles repo, or use one of:\n"+
+			"  dots --repo ~/dotfiles apply\n"+
+			"  export DOTS_REPO=~/dotfiles",
+	)
+}
+
+// resolveRepoAt resolves and validates an explicit repo path.
+func resolveRepoAt(path string) (string, error) {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return "", errs.NewConfig("invalid repo path: "+path, err.Error())
+	}
+	if _, err := os.Stat(abs); os.IsNotExist(err) {
+		return "", errs.NewConfig(
+			"repo path does not exist: "+abs,
+			"Check that the directory exists and the path is correct.",
+		)
+	}
+	return abs, nil
+}
+
+// isRepoRoot reports whether dir looks like a dots repository root.
+// A directory qualifies if it contains dots.toml or a files/ subdirectory.
+func isRepoRoot(dir string) bool {
+	if _, err := os.Stat(filepath.Join(dir, "dots.toml")); err == nil {
+		return true
+	}
+	if info, err := os.Stat(filepath.Join(dir, "files")); err == nil && info.IsDir() {
+		return true
+	}
+	return false
 }
