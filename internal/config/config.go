@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 
 	"github.com/pkuehne/dots/internal/errs"
+	"github.com/pkuehne/dots/internal/platform"
 )
 
 // ── Structs ──────────────────────────────────────────────────────────────────
@@ -203,7 +204,101 @@ func Load(repoRoot, profile string) (Config, error) {
 		return cfg, nil
 	}
 
-	panic("Load: not yet implemented — see parse.go")
+	raw, err := parseDoc(path)
+	if err != nil {
+		return Config{}, err
+	}
+
+	merged := mergeProfiles(raw, platform.Detect(), platform.Hostname(), profile)
+
+	if m, ok := merged["meta"].(map[string]any); ok {
+		cfg.Meta = MetaConfig{
+			Version:     int(intVal(m, "version", 1)),
+			DefaultMode: str(m, "default_mode", "symlink"),
+		}
+	}
+	if v, ok := merged["vars"].(map[string]any); ok {
+		cfg.Vars = v
+	}
+	if p, ok := raw["profiles"].(map[string]any); ok {
+		cfg.Profiles = p
+	}
+
+	cfg.Env, err = parseEnv(merged)
+	if err != nil {
+		return Config{}, err
+	}
+
+	if s, ok := merged["shell"].(map[string]any); ok {
+		cfg.Shell = ShellConfig{
+			Managed: boolean(s, "managed", false),
+			Login:   boolean(s, "login", false),
+			Zshrc:   str(s, "zshrc", "~/.zshrc"),
+			Bashrc:  str(s, "bashrc", "~/.bashrc"),
+			Dir:     str(s, "dir", "~/.config/dots/shell.d"),
+			Path:    strSlice(s, "path"),
+		}
+	}
+	if g, ok := merged["git"].(map[string]any); ok {
+		cfg.Git = GitConfig{
+			Managed:       boolean(g, "managed", false),
+			Name:          str(g, "name", ""),
+			Email:         str(g, "email", ""),
+			Editor:        str(g, "editor", ""),
+			DefaultBranch: str(g, "default_branch", "main"),
+			PullRebase:    boolean(g, "pull_rebase", false),
+			SigningKey:     str(g, "signingkey", ""),
+			Sign:          boolean(g, "sign", false),
+		}
+	}
+	if s, ok := merged["ssh"].(map[string]any); ok {
+		cfg.SSH = SSHConfig{
+			Managed: boolean(s, "managed", false),
+			Hosts:   parseSSHHosts(s),
+		}
+	}
+	if t, ok := merged["tools"].(map[string]any); ok {
+		cfg.ToolsConfig = ToolsConfig{
+			BinDir: str(t, "bin_dir", "~/.local/bin"),
+		}
+	}
+
+	for _, rt := range tableSlice(merged, "tool") {
+		t, err := parseTool(rt)
+		if err != nil {
+			return Config{}, err
+		}
+		cfg.Tools = append(cfg.Tools, t)
+	}
+	for _, rf := range tableSlice(merged, "file") {
+		f, err := parseFileEntry(rf)
+		if err != nil {
+			return Config{}, err
+		}
+		cfg.Files = append(cfg.Files, f)
+	}
+	for _, rr := range tableSlice(merged, "repo") {
+		r, err := parseRepoEntry(rr)
+		if err != nil {
+			return Config{}, err
+		}
+		cfg.Repos = append(cfg.Repos, r)
+	}
+
+	if s, ok := merged["secrets"].(map[string]any); ok {
+		cfg.Secrets = SecretsConfig{
+			Recipient: str(s, "recipient", ""),
+			Identity:  str(s, "identity", "~/.config/dots/key.txt"),
+		}
+	}
+	if p, ok := merged["presets"].(map[string]any); ok {
+		cfg.Presets = PresetsConfig{
+			Fzf:  boolean(p, "fzf", false),
+			Tmux: boolean(p, "tmux", false),
+		}
+	}
+
+	return cfg, nil
 }
 
 // FindRepoRoot resolves the dotfiles repository root using this precedence:
