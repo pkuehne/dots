@@ -1,34 +1,233 @@
 // Package repos clones and updates [[repo]] entries.
 package repos
 
-import "github.com/pkuehne/dots/internal/config"
+import (
+	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+
+	"github.com/pkuehne/dots/internal/config"
+	"github.com/pkuehne/dots/internal/errs"
+	"github.com/pkuehne/dots/internal/fileutil"
+)
 
 // RepoState is the current state of a managed repo clone.
 type RepoState struct {
 	Entry   config.RepoEntry
 	Exists  bool
 	Dirty   bool
-	Behind  int // commits behind remote
+	Behind  int    // commits behind remote
 	Current string // current ref (branch or SHA)
 }
 
 // Clone clones any repos that are not yet present on disk.
 // If names is non-empty, only those repos are cloned.
 func Clone(cfg config.Config, names []string, dryRun bool) error {
-	panic("Clone: not yet implemented")
+	for _, r := range Filter(cfg.Repos, names) {
+		if _, err := cloneOne(r, dryRun); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // Update fetches and pulls repos that already exist.
 func Update(cfg config.Config, names []string, dryRun bool) error {
-	panic("Update: not yet implemented")
+	for _, r := range Filter(cfg.Repos, names) {
+		if _, err := updateOne(r, dryRun); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // Status returns the state of all managed repo clones.
 func Status(cfg config.Config) ([]RepoState, error) {
-	panic("Status: not yet implemented")
+	states := make([]RepoState, 0, len(cfg.Repos))
+	for _, r := range cfg.Repos {
+		s, err := repoState(r)
+		if err != nil {
+			return nil, err
+		}
+		states = append(states, s)
+	}
+	return states, nil
 }
 
 // Filter returns the subset of repos matching names. If names is empty, all repos are returned.
 func Filter(repos []config.RepoEntry, names []string) []config.RepoEntry {
-	panic("Filter: not yet implemented")
+	if len(names) == 0 {
+		return repos
+	}
+	set := make(map[string]bool, len(names))
+	for _, n := range names {
+		set[n] = true
+	}
+	var out []config.RepoEntry
+	for _, r := range repos {
+		if set[r.Name] {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
+// cloneOne clones a single repo. Returns "ok", "already", or an error.
+func cloneOne(r config.RepoEntry, dryRun bool) (string, error) {
+	dst := fileutil.Expand(r.Dst)
+
+	if info, err := os.Stat(dst); err == nil && info.IsDir() {
+		if _, gerr := os.Stat(filepath.Join(dst, ".git")); os.IsNotExist(gerr) {
+			return "", &errs.DotsError{
+				Msg: fmt.Sprintf("Cannot clone %s to %s", r.Name, dst),
+				Hint: "Reason: Directory exists but is not a git repository\n\n" +
+					"Hint: If you want dots to manage this directory, remove it first:\n" +
+					"  rm -rf " + dst + "\n" +
+					"Then re-run: dots repos clone " + r.Name + "\n\n" +
+					"If you want to keep the existing installation, remove the [[repo]] entry\n" +
+					"from dots.toml or set a different dst.",
+			}
+		}
+		return "already", nil
+	}
+
+	if dryRun {
+		return "ok", nil
+	}
+
+	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+		return "", err
+	}
+
+	repoURL := expandURL(r.Repo)
+	args := []string{"clone"}
+	if r.Shallow {
+		args = append(args, "--depth", "1")
+	}
+	if r.Ref != "" {
+		args = append(args, "--branch", r.Ref)
+	}
+	args = append(args, repoURL, dst)
+
+	if err := gitRun(args, ""); err != nil {
+		return "", err
+	}
+
+	if r.OnInstall != "" {
+		if err := shellRun(r.OnInstall, dst); err != nil {
+			return "", err
+		}
+	}
+	return "ok", nil
+}
+
+// updateOne updates a single repo. Returns "ok", "missing", or an error.
+func updateOne(r config.RepoEntry, dryRun bool) (string, error) {
+	dst := fileutil.Expand(r.Dst)
+
+	if _, err := os.Stat(dst); os.IsNotExist(err) {
+		return "missing", nil
+	}
+
+	if dryRun {
+		return "ok", nil
+	}
+
+	if r.Shallow {
+		if err := gitRun([]string{"fetch", "--depth", "1"}, dst); err != nil {
+			return "", err
+		}
+		if err := gitRun([]string{"reset", "--hard", "FETCH_HEAD"}, dst); err != nil {
+			return "", err
+		}
+	} else {
+		if err := gitRun([]string{"pull"}, dst); err != nil {
+			return "", err
+		}
+	}
+
+	if r.OnUpdate != "" {
+		if err := shellRun(r.OnUpdate, dst); err != nil {
+			return "", err
+		}
+	}
+	return "ok", nil
+}
+
+// repoState returns the current state of a repo without modifying it.
+func repoState(r config.RepoEntry) (RepoState, error) {
+	dst := fileutil.Expand(r.Dst)
+	s := RepoState{Entry: r}
+
+	if _, err := os.Stat(dst); os.IsNotExist(err) {
+		return s, nil
+	}
+	s.Exists = true
+
+	// Current branch or SHA.
+	if out, err := gitOutput([]string{"rev-parse", "--abbrev-ref", "HEAD"}, dst); err == nil {
+		s.Current = strings.TrimSpace(out)
+	}
+
+	// Dirty check.
+	if out, err := gitOutput([]string{"status", "--porcelain"}, dst); err == nil {
+		s.Dirty = strings.TrimSpace(out) != ""
+	}
+
+	// Commits behind upstream (best-effort; fails gracefully if no upstream).
+	if out, err := gitOutput([]string{"rev-list", "HEAD..@{u}", "--count"}, dst); err == nil {
+		n := 0
+		fmt.Sscanf(strings.TrimSpace(out), "%d", &n)
+		s.Behind = n
+	}
+
+	return s, nil
+}
+
+// expandURL expands a GitHub shorthand "user/repo" to a full HTTPS URL.
+func expandURL(repo string) string {
+	if strings.Contains(repo, "/") && !strings.Contains(repo, "://") && !strings.Contains(repo, "@") {
+		return "https://github.com/" + repo
+	}
+	return repo
+}
+
+// gitRun runs a git command in cwd (empty = inherit).
+func gitRun(args []string, cwd string) error {
+	cmd := exec.Command("git", args...)
+	if cwd != "" {
+		cmd.Dir = cwd
+	}
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return &errs.DotsError{
+			Msg:  fmt.Sprintf("git %s failed", args[0]),
+			Hint: strings.TrimSpace(string(out)),
+		}
+	}
+	return nil
+}
+
+// gitOutput runs a git command and returns its stdout.
+func gitOutput(args []string, cwd string) (string, error) {
+	cmd := exec.Command("git", args...)
+	if cwd != "" {
+		cmd.Dir = cwd
+	}
+	out, err := cmd.Output()
+	return string(out), err
+}
+
+// shellRun runs a shell command string in cwd.
+func shellRun(command, cwd string) error {
+	cmd := exec.Command("sh", "-c", command)
+	cmd.Dir = cwd
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return &errs.DotsError{
+			Msg:  fmt.Sprintf("hook command failed: %s", command),
+			Hint: strings.TrimSpace(string(out)),
+		}
+	}
+	return nil
 }
