@@ -1,6 +1,15 @@
 package main
 
-import "github.com/spf13/cobra"
+import (
+	"fmt"
+	"os"
+
+	"github.com/spf13/cobra"
+
+	"github.com/pkuehne/dots/internal/deploy"
+	"github.com/pkuehne/dots/internal/discovery"
+	"github.com/pkuehne/dots/internal/platform"
+)
 
 // ── init ─────────────────────────────────────────────────────────────────────
 
@@ -21,22 +30,65 @@ func newInitCmd() *cobra.Command {
 
 func newApplyCmd() *cobra.Command {
 	var dryRun, forceCopy bool
-	var profile string
 
 	cmd := &cobra.Command{
 		Use:   "apply [files...]",
 		Short: "Deploy files and generate managed configs",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			_ = dryRun
-			_ = forceCopy
-			_ = profile
-			return todo("apply")
+			opts := deploy.Options{
+				DryRun:        dryRun,
+				ForceCopy:     forceCopy,
+				RepoRoot:      globals.cfg.RepoRoot,
+				DefaultMode:   globals.cfg.Meta.DefaultMode,
+				ActiveProfile: globals.cfg.ActiveProfile,
+			}
+
+			entries, err := discovery.Walk(globals.cfg, platform.Detect())
+			if err != nil {
+				return err
+			}
+
+			results := deploy.ApplyAll(entries, opts)
+			printResults(results, dryRun)
+			return nil
 		},
 	}
 	cmd.Flags().BoolVarP(&dryRun, "dry-run", "n", false, "print actions without executing")
 	cmd.Flags().BoolVarP(&forceCopy, "copy", "c", false, "force copy mode instead of symlink")
-	cmd.Flags().StringVar(&profile, "profile", "", "override active profile")
 	return cmd
+}
+
+func printResults(results []deploy.Result, dryRun bool) {
+	counts := map[string]int{}
+	for _, r := range results {
+		if r.Err != nil {
+			fmt.Fprintf(os.Stderr, "  error  %s: %v\n", r.Entry.Dst, r.Err)
+			counts["error"]++
+			continue
+		}
+		counts[r.Action]++
+		if r.Action == "skipped" || r.Action == "unchanged" {
+			continue
+		}
+		verb := r.Action
+		if dryRun {
+			verb = "would " + verb
+		}
+		fmt.Printf("%9s  %s\n", verb, r.Entry.Dst)
+	}
+	fmt.Printf("\n%d linked, %d copied, %d unchanged, %d skipped",
+		counts["linked"]+counts["link"],
+		counts["copied"]+counts["copy"],
+		counts["unchanged"],
+		counts["skipped"],
+	)
+	if counts["missing"] > 0 {
+		fmt.Printf(", %d missing", counts["missing"])
+	}
+	if counts["error"] > 0 {
+		fmt.Printf(", %d errors", counts["error"])
+	}
+	fmt.Println()
 }
 
 func newPreviewCmd() *cobra.Command {
