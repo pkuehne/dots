@@ -3,12 +3,15 @@ package main
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/spf13/cobra"
 
 	"github.com/pkuehne/dots/internal/deploy"
 	"github.com/pkuehne/dots/internal/discovery"
+	"github.com/pkuehne/dots/internal/errs"
 	"github.com/pkuehne/dots/internal/platform"
+	"github.com/pkuehne/dots/internal/secrets"
 )
 
 // ── init ─────────────────────────────────────────────────────────────────────
@@ -204,8 +207,19 @@ func newEncryptCmd() *cobra.Command {
 		Short: "Encrypt a file with age",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			_ = output
-			return todo("encrypt")
+			src := args[0]
+			if _, err := os.Stat(src); err != nil {
+				return errs.New(fmt.Sprintf("File not found: %s", src), "")
+			}
+			dst := output
+			if dst == "" {
+				dst = src + ".age"
+			}
+			if err := secrets.Encrypt(src, dst, globals.cfg); err != nil {
+				return err
+			}
+			fmt.Printf("✓ Encrypted %s → %s\n", src, dst)
+			return nil
 		},
 	}
 	cmd.Flags().StringVarP(&output, "output", "o", "", "output path (default: <file>.age)")
@@ -219,8 +233,22 @@ func newDecryptCmd() *cobra.Command {
 		Short: "Decrypt an .age file",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			_ = output
-			return todo("decrypt")
+			src := args[0]
+			if _, err := os.Stat(src); err != nil {
+				return errs.New(fmt.Sprintf("File not found: %s", src), "")
+			}
+			if !strings.HasSuffix(src, ".age") {
+				return errs.New(fmt.Sprintf("File must end in .age: %s", src), "")
+			}
+			dst := output
+			if dst == "" {
+				dst = strings.TrimSuffix(src, ".age")
+			}
+			if err := secrets.Decrypt(src, dst, globals.cfg); err != nil {
+				return err
+			}
+			fmt.Printf("✓ Decrypted %s → %s\n", src, dst)
+			return nil
 		},
 	}
 	cmd.Flags().StringVarP(&output, "output", "o", "", "output path (default: file without .age)")
