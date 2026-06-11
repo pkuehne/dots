@@ -316,6 +316,28 @@ func TestInsertBlockIdempotent(t *testing.T) {
 	}
 }
 
+func TestInsertBlockPreservesDollarSigns(t *testing.T) {
+	// The bootstrapper contains shell variables ($HOME, $_dots_d, …). A regex
+	// replacement that expands $names as group references corrupts the block
+	// on the second insert.
+	dir := t.TempDir()
+	path := filepath.Join(dir, ".zshrc")
+
+	_, _ = InsertBlock(path, zshBootstrapper, false)
+	modified, err := InsertBlock(path, zshBootstrapper, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if modified {
+		t.Error("second insert of identical content should report modified=false")
+	}
+
+	data, _ := os.ReadFile(path)
+	if !strings.Contains(string(data), `$HOME`) {
+		t.Errorf("shell variables stripped from block:\n%s", data)
+	}
+}
+
 func TestInsertBlockDryRun(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, ".zshrc")

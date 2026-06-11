@@ -238,13 +238,31 @@ func deployUserSnippets(cfg config.Config, dir string, dryRun bool) error {
 			fmt.Printf("  skipped %s (template — not supported)\n", name)
 			continue
 		}
-		if dryRun {
-			continue
-		}
 		src := filepath.Join(cfg.RepoRoot, "shell", name)
-		if err := fileutil.CopyFile(src, filepath.Join(dir, name)); err != nil {
+		content, err := os.ReadFile(src)
+		if err != nil {
 			return err
 		}
+		if err := writeSnippet(filepath.Join(dir, name), content, dryRun); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// writeSnippet writes one shell.d snippet idempotently and reports the write.
+// Unchanged snippets produce no write and no output.
+func writeSnippet(dst string, content []byte, dryRun bool) error {
+	changed, err := fileutil.WriteIfChanged(dst, content, 0o644, dryRun)
+	if err != nil {
+		return err
+	}
+	if changed {
+		verb := "wrote"
+		if dryRun {
+			verb = "would write"
+		}
+		fmt.Printf("  %s %s\n", verb, dst)
 	}
 	return nil
 }
@@ -305,12 +323,13 @@ func WriteSnippets(cfg config.Config, dryRun bool) error {
 		snippets["099-custom.sh"] = custom
 	}
 
-	if dryRun {
-		return nil
+	names := make([]string, 0, len(snippets))
+	for name := range snippets {
+		names = append(names, name)
 	}
-
-	for name, content := range snippets {
-		if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
+	sort.Strings(names)
+	for _, name := range names {
+		if err := writeSnippet(filepath.Join(dir, name), []byte(snippets[name]), dryRun); err != nil {
 			return err
 		}
 	}
@@ -320,11 +339,23 @@ func WriteSnippets(cfg config.Config, dryRun bool) error {
 // InsertSourceLine inserts the marker-delimited bootstrapper block into the
 // zshrc and bashrc files listed in cfg.Shell.
 func InsertSourceLine(cfg config.Config, dryRun bool) error {
-	if _, err := InsertBlock(fileutil.Expand(cfg.Shell.Zshrc), zshBootstrapper, dryRun); err != nil {
-		return err
-	}
-	if _, err := InsertBlock(fileutil.Expand(cfg.Shell.Bashrc), bashBootstrapper, dryRun); err != nil {
-		return err
+	for _, rc := range []string{cfg.Shell.Zshrc, cfg.Shell.Bashrc} {
+		path := fileutil.Expand(rc)
+		bootstrapper := zshBootstrapper
+		if rc == cfg.Shell.Bashrc {
+			bootstrapper = bashBootstrapper
+		}
+		changed, err := InsertBlock(path, bootstrapper, dryRun)
+		if err != nil {
+			return err
+		}
+		if changed {
+			verb := "updated bootstrapper in"
+			if dryRun {
+				verb = "would update bootstrapper in"
+			}
+			fmt.Printf("  %s %s\n", verb, path)
+		}
 	}
 	return nil
 }
@@ -395,6 +426,7 @@ func Clean(cfg config.Config, dryRun bool) error {
 		}
 	}
 
+	removed := 0
 	for _, e := range entries {
 		name := e.Name()
 		if e.IsDir() || !isSnippetFile(name) || expected[name] {
@@ -404,7 +436,14 @@ func Clean(cfg config.Config, dryRun bool) error {
 			if err := os.Remove(filepath.Join(dir, name)); err != nil {
 				return err
 			}
+			fmt.Printf("  removed %s\n", name)
+		} else {
+			fmt.Printf("  would remove %s\n", name)
 		}
+		removed++
+	}
+	if removed == 0 {
+		fmt.Println("  No stale snippets found.")
 	}
 	return nil
 }
@@ -439,7 +478,9 @@ func InsertBlock(path, content string, dryRun bool) (bool, error) {
 
 	if strings.Contains(text, MarkerStart) {
 		re := regexp.MustCompile(`(?s)` + regexp.QuoteMeta(MarkerStart) + `.*?` + regexp.QuoteMeta(MarkerEnd))
-		newText := re.ReplaceAllString(text, content)
+		// Literal replacement: content contains shell variables ($HOME,
+		// $_dots_d, …) that ReplaceAllString would mangle as group references.
+		newText := re.ReplaceAllLiteralString(text, content)
 		if newText == text {
 			return false, nil
 		}
