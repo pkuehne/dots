@@ -1,6 +1,7 @@
 package shell
 
 import (
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -444,6 +445,160 @@ func TestCleanKeepsFzfPreset(t *testing.T) {
 	}
 	if _, err := os.Stat(fzf); err != nil {
 		t.Error("030-fzf.sh should survive Clean when the fzf preset is enabled")
+	}
+}
+
+// makeUserSnippetRepo creates a repo root with a shell/ directory containing
+// the given name→content files.
+func makeUserSnippetRepo(t *testing.T, files map[string]string) string {
+	t.Helper()
+	repo := t.TempDir()
+	shellDir := filepath.Join(repo, "shell")
+	if err := os.MkdirAll(shellDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for name, content := range files {
+		if err := os.WriteFile(filepath.Join(shellDir, name), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return repo
+}
+
+// captureStdout runs fn and returns everything it printed to os.Stdout.
+func captureStdout(t *testing.T, fn func()) string {
+	t.Helper()
+	old := os.Stdout
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Stdout = w
+	defer func() { os.Stdout = old }()
+	fn()
+	w.Close()
+	data, err := io.ReadAll(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(data)
+}
+
+func TestWriteSnippetsDeploysUserSnippets(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	dir := t.TempDir()
+	repo := makeUserSnippetRepo(t, map[string]string{"035-aliases.sh": "alias ll='ls -la'\n"})
+	cfg := config.Config{
+		Shell:    config.ShellConfig{Dir: dir},
+		Env:      config.EnvConfig{Vars: map[string]string{}},
+		RepoRoot: repo,
+	}
+
+	out := captureStdout(t, func() {
+		if err := WriteSnippets(cfg, false); err != nil {
+			t.Error(err)
+		}
+	})
+	if strings.Contains(out, "Warning") {
+		t.Errorf("in-range prefix must not warn, got:\n%s", out)
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "035-aliases.sh"))
+	if err != nil {
+		t.Fatalf("user snippet should be deployed into shell.d: %v", err)
+	}
+	if string(data) != "alias ll='ls -la'\n" {
+		t.Errorf("deployed content mismatch: %q", data)
+	}
+}
+
+func TestWriteSnippetsWarnsOnOutOfRangePrefix(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	dir := t.TempDir()
+	repo := makeUserSnippetRepo(t, map[string]string{"015-early.sh": "# early\n"})
+	cfg := config.Config{
+		Shell:    config.ShellConfig{Dir: dir},
+		Env:      config.EnvConfig{Vars: map[string]string{}},
+		RepoRoot: repo,
+	}
+
+	out := captureStdout(t, func() {
+		if err := WriteSnippets(cfg, false); err != nil {
+			t.Error(err)
+		}
+	})
+	want := "⚠ Warning: 015-early.sh has prefix 15 outside expected ranges (030-049, 080-089, 090+)"
+	if !strings.Contains(out, want) {
+		t.Errorf("expected warning %q, got:\n%s", want, out)
+	}
+	// Warned but still deployed, matching the Python behavior.
+	if _, err := os.Stat(filepath.Join(dir, "015-early.sh")); err != nil {
+		t.Errorf("out-of-range snippet should still be deployed: %v", err)
+	}
+}
+
+func TestWriteSnippetsSkipsTemplates(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	dir := t.TempDir()
+	repo := makeUserSnippetRepo(t, map[string]string{"040-tmpl.sh.j2": "{{ var }}\n"})
+	cfg := config.Config{
+		Shell:    config.ShellConfig{Dir: dir},
+		Env:      config.EnvConfig{Vars: map[string]string{}},
+		RepoRoot: repo,
+	}
+
+	out := captureStdout(t, func() {
+		if err := WriteSnippets(cfg, false); err != nil {
+			t.Error(err)
+		}
+	})
+	if !strings.Contains(out, "skipped 040-tmpl.sh.j2 (template — not supported)") {
+		t.Errorf("expected visible template skip, got:\n%s", out)
+	}
+	for _, name := range []string{"040-tmpl.sh.j2", "040-tmpl.sh"} {
+		if _, err := os.Stat(filepath.Join(dir, name)); !os.IsNotExist(err) {
+			t.Errorf("%s must not be deployed", name)
+		}
+	}
+}
+
+func TestWriteSnippetsUserSnippetsDryRun(t *testing.T) {
+	dir := t.TempDir()
+	snippetDir := filepath.Join(dir, "shell.d")
+	repo := makeUserSnippetRepo(t, map[string]string{"035-aliases.sh": "# aliases\n"})
+	cfg := config.Config{
+		Shell:    config.ShellConfig{Dir: snippetDir},
+		Env:      config.EnvConfig{Vars: map[string]string{}},
+		RepoRoot: repo,
+	}
+
+	if err := WriteSnippets(cfg, true); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(snippetDir); !os.IsNotExist(err) {
+		t.Error("dry run must not create shell.d or deploy user snippets")
+	}
+}
+
+func TestCleanKeepsUserSnippets(t *testing.T) {
+	dir := t.TempDir()
+	repo := makeUserSnippetRepo(t, map[string]string{"035-aliases.sh": "# aliases\n"})
+	kept := filepath.Join(dir, "035-aliases.sh")
+	stale := filepath.Join(dir, "036-gone.sh")
+	_ = os.WriteFile(kept, []byte("# aliases\n"), 0o644)
+	_ = os.WriteFile(stale, []byte("# no longer in shell/\n"), 0o644)
+
+	cfg := config.Config{
+		Shell:    config.ShellConfig{Dir: dir},
+		RepoRoot: repo,
+	}
+	if err := Clean(cfg, false); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(kept); err != nil {
+		t.Error("user snippet deployed from shell/ must survive Clean")
+	}
+	if _, err := os.Stat(stale); !os.IsNotExist(err) {
+		t.Error("snippet absent from shell/ should be removed")
 	}
 }
 

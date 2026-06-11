@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/pkuehne/dots/internal/config"
@@ -189,7 +190,68 @@ func GenerateCustomSnippet(repoRoot string) (string, bool, error) {
 	return strings.Join(lines, "\n") + "\n", true, nil
 }
 
-// WriteSnippets writes all generated snippets to cfg.Shell.Dir.
+// userSnippetFiles lists the regular files in <repoRoot>/shell/ that dots
+// deploys into shell.d. Both deployUserSnippets and Clean derive their view of
+// user snippets from this list so the two cannot drift apart.
+func userSnippetFiles(repoRoot string) ([]string, error) {
+	entries, err := os.ReadDir(filepath.Join(repoRoot, "shell"))
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	var names []string
+	for _, e := range entries {
+		if e.IsDir() || fileutil.ShouldSkip(e.Name()) {
+			continue
+		}
+		names = append(names, e.Name())
+	}
+	return names, nil
+}
+
+// userSnippetPrefixRe matches a leading numeric prefix in a snippet name.
+var userSnippetPrefixRe = regexp.MustCompile(`^(\d+)`)
+
+// deployUserSnippets copies user snippet files from <repoRoot>/shell/ into
+// dir, warning when a numeric prefix falls outside the ranges reserved for
+// user snippets (030-049, 080-089, 090+; generated snippets own the rest).
+// .j2 templates are not supported in the Go version and are skipped visibly.
+func deployUserSnippets(cfg config.Config, dir string, dryRun bool) error {
+	names, err := userSnippetFiles(cfg.RepoRoot)
+	if err != nil {
+		return err
+	}
+	for _, name := range names {
+		if m := userSnippetPrefixRe.FindStringSubmatch(name); m != nil {
+			prefix, _ := strconv.Atoi(m[1])
+			inRange := (prefix >= 30 && prefix <= 49) ||
+				(prefix >= 80 && prefix <= 89) ||
+				(prefix >= 90 && prefix <= 99)
+			if !inRange {
+				fmt.Printf("  ⚠ Warning: %s has prefix %d outside expected ranges "+
+					"(030-049, 080-089, 090+)\n", name, prefix)
+			}
+		}
+		if strings.HasSuffix(name, ".j2") {
+			fmt.Printf("  skipped %s (template — not supported)\n", name)
+			continue
+		}
+		if dryRun {
+			continue
+		}
+		src := filepath.Join(cfg.RepoRoot, "shell", name)
+		if err := fileutil.CopyFile(src, filepath.Join(dir, name)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// WriteSnippets writes all generated snippets to cfg.Shell.Dir and deploys
+// user snippets from <repoRoot>/shell/. User snippets are deployed first, so
+// a generated snippet wins if a user file shares its name.
 // With dryRun=true no files are written.
 func WriteSnippets(cfg config.Config, dryRun bool) error {
 	dir := fileutil.Expand(cfg.Shell.Dir)
@@ -198,6 +260,10 @@ func WriteSnippets(cfg config.Config, dryRun bool) error {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			return err
 		}
+	}
+
+	if err := deployUserSnippets(cfg, dir, dryRun); err != nil {
+		return err
 	}
 
 	snippets := map[string]string{
@@ -290,6 +356,13 @@ func Clean(cfg config.Config, dryRun bool) error {
 	}
 	if _, ok, _ := GenerateCustomSnippet(cfg.RepoRoot); ok {
 		expected["099-custom.sh"] = true
+	}
+	// User snippets deployed from <repoRoot>/shell/ by deployUserSnippets must
+	// never be cleaned; both sides derive the list from userSnippetFiles.
+	if names, err := userSnippetFiles(cfg.RepoRoot); err == nil {
+		for _, n := range names {
+			expected[n] = true
+		}
 	}
 
 	for _, e := range entries {
