@@ -10,6 +10,17 @@ dots --repo ~/dotfiles apply
 
 Or set the environment variable: `export DOTS_REPO=~/dotfiles`
 
+## Error format
+
+All dots errors show a hint:
+
+```
+error: dots.toml not found at /home/user/dotfiles/dots.toml
+  hint: Run 'dots init' to create one, or use --repo to point at your dotfiles directory.
+```
+
+If you see a raw Go panic, please open a bug report — that is always a bug.
+
 ## GitHub API rate limit
 
 Unauthenticated requests are limited to 60/hour. Set a token:
@@ -31,6 +42,8 @@ chmod 600 ~/.ssh/*
 
 ## Template variable undefined
 
+Dots renders `.j2` files with Go's `text/template`. Variables come from `[vars]` in `dots.toml` and the platform context (`Platform`, `Arch`, `Hostname`). Use `{{ .VarName }}` syntax.
+
 Check available variables with `dots env show`. Add missing vars to `[vars]` in dots.toml.
 
 ## age not found
@@ -47,10 +60,20 @@ export HTTP_PROXY=http://proxy:3128
 
 ## Bootstrapper not sourcing snippets
 
-Run `dots shell check` to verify the bootstrapper is installed. If not:
+Run `dots doctor` to verify the bootstrapper is installed. If not:
 
 ```
 dots shell init
 ```
 
 Then restart your shell or `source ~/.zshrc`.
+
+## Binary not found after install
+
+Ensure `~/.local/bin` is on your `$PATH`:
+
+```sh
+export PATH="$HOME/.local/bin:$PATH"
+```
+
+Add that line to your shell profile (`~/.zshrc`, `~/.bashrc`, etc.).

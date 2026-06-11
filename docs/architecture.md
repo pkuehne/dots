@@ -2,7 +2,27 @@
 
 ## Overview
 
-dots is a single-file Python tool for dotfile management, tool installation, and shell environment generation. It works identically on Linux, macOS, and Termux.
+dots is a Go CLI tool for dotfile management, tool installation, and shell environment generation. It compiles to a single static binary with no runtime dependencies. It works identically on Linux, macOS, and Termux.
+
+## Package Layout
+
+```
+cmd/dots/          CLI entry point (main.go + commands.go)
+internal/
+  config/          Config structs + Load(), FindRepoRoot(), TOML parsing
+  platform/        OS/arch detection (Detect(), DetectArch())
+  errs/            DotsError with Hint field; ConfigError, ToolInstallError
+  fileutil/        Expand(), Sha256File(), Backup(), EnsureParent(), CopyFile()
+  discovery/       Walk() — discovers files/ and files.d/{platform}/
+  deploy/          Apply(), ApplyAll() — symlink/copy/render + Result reporting
+  shell/           Snippet generation, InsertBlock(), RemoveBlock(), WriteSnippets()
+  git/             GenerateConfig(), WriteManaged(), Uninit()
+  ssh/             GenerateConfig(), WriteManaged(), Uninit(), SnakeToSSHKeyword()
+  secrets/         Encrypt(), Decrypt(), DecryptToMemory() via age subprocess
+  presets/         GenerateFzf(), TmuxPreset, GenerateZprofile(), Eject()
+  repos/           Clone(), Update(), Status(), Filter() via git subprocess
+  tools/           Check(), Install(), Filter() — stub pending implementation
+```
 
 ## Configuration Levels
 
@@ -11,7 +31,7 @@ No `dots.toml` required. `dots apply` discovers all files under `files/` and `fi
 
 Auto-detection rules (first match wins):
 - `.age` suffix → secret; decrypt with age, write result
-- `.j2` suffix → template; render with Jinja2, write result
+- `.j2` suffix → template; render with Go `text/template`, write result
 - Everything else → symlink
 
 ### Level 1 — dots.toml: Additive Overrides
@@ -96,5 +116,5 @@ A `[[tool]]` entry can contribute to:
 
 - **Content comparison**: sha256 hash before overwriting copied files
 - **Symlink check**: resolve() comparison before recreating
-- **Marker-delimited insertion**: regex replace between markers for updates
-- **Backup-before-replace**: `.dots-bak` suffix on any overwritten file
+- **Marker-delimited insertion**: replace between markers for updates (`shell.InsertBlock`)
+- **Backup-before-replace**: `.dots-bak` suffix on any overwritten file (`fileutil.Backup`)

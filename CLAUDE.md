@@ -4,8 +4,7 @@
 
 See docs/architecture.md for a full overview.
 
-This branch (`feat/migrate-to-golang`) is a Go rewrite. The Python source under
-`src/dots/` is kept for reference. The Go code lives under `cmd/` and `internal/`.
+The Go implementation lives under `cmd/` and `internal/`. The Python source has been removed (see ADR 014).
 
 ## Commands
 
@@ -20,9 +19,6 @@ just test           # go test ./...
 # Format / vet
 just fmt
 just vet
-
-# Python tests (kept for reference during migration)
-pytest tests/
 ```
 
 ## Commits
@@ -45,19 +41,20 @@ Use the body for detail when needed.
 ## Go package layout
 
 ```
-cmd/dots/         CLI entry point + cobra command stubs
-internal/config/  Config structs + Load() (stub)
-internal/platform/ OS/arch detection (implemented)
-internal/errs/    DotsError, ConfigError, ToolInstallError
-internal/discovery/ File discovery (stub)
-internal/deploy/  File deployment — symlink/copy/render (stub)
-internal/shell/   Shell snippet generation (stub)
-internal/git/     Git config generation (stub)
-internal/ssh/     SSH config generation (stub)
-internal/tools/   Tool installation (stub)
-internal/repos/   Repo cloning (stub)
-internal/secrets/ age encrypt/decrypt (stub)
-internal/presets/ Preset generation (stub)
+cmd/dots/          CLI entry point (main.go + commands.go) — implemented
+internal/config/   Config structs + Load(), FindRepoRoot() — implemented
+internal/platform/ OS/arch detection — implemented
+internal/errs/     DotsError, ConfigError, ToolInstallError — implemented
+internal/fileutil/ Expand, Sha256File, Backup, EnsureParent, CopyFile — implemented
+internal/discovery/ File discovery (Walk) — implemented
+internal/deploy/   File deployment — symlink/copy/render — implemented
+internal/shell/    Snippet generation + InsertBlock/RemoveBlock — implemented
+internal/git/      Git config generation + WriteManaged/Uninit — implemented
+internal/ssh/      SSH config generation + WriteManaged/Uninit — implemented
+internal/secrets/  age encrypt/decrypt — implemented
+internal/presets/  Preset generation + Eject — implemented
+internal/repos/    Repo cloning + Update/Status — implemented
+internal/tools/    Tool installation — STUB (pending Phase 5)
 ```
 
 ## Key invariants
@@ -73,31 +70,30 @@ internal/presets/ Preset generation (stub)
 
 ## Adding a new managed subsystem
 
-1. Add a dataclass in the Config section (e.g. FooConfig)
-2. Add `foo: FooConfig` to the Config dataclass
-3. Parse it in load_config()
-4. Add generate_foo() function
-5. Add cmd_foo_init(), cmd_foo_show(), cmd_foo_uninit()
-6. Wire into cmd_apply() execution order
-7. Wire into build_parser()
-8. Wire into main() dispatch
-9. Add doctor checks
-10. Add unit tests in tests/unit/test_foo_config.py
-11. Add integration tests in tests/integration/test_foo_managed.py
-12. Write adr/NNN-foo-managed.md
+1. Add a struct (e.g. `FooConfig`) in `internal/config/config.go`
+2. Add `Foo FooConfig` to the root `Config` struct
+3. Parse it in `internal/config/load.go`
+4. Create `internal/foo/foo.go` with `GenerateConfig`, `WriteManaged`, `Uninit`
+5. Add cobra sub-commands `foo init`, `foo show`, `foo uninit` in `cmd/dots/commands.go`
+6. Wire into `apply` orchestration in `cmd/dots/commands.go` (`newApplyCmd`)
+7. Add doctor checks in `runDoctor()` in `cmd/dots/commands.go`
+8. Write `internal/foo/foo_test.go` with table-driven tests using `t.TempDir()`
+9. Write `adr/NNN-foo-managed.md`
 
 ## Adding a new install method
 
-1. Add method name to ToolInstall.method type annotation
-2. Add a branch in install_tool() dispatch
-3. Add to the install method reference table in the spec and docs
-4. Add test cases in tests/unit/test_tools.py
-5. Document in docs/configuration.md
+1. Add the method name to `ToolInstall.Method` in `internal/config/config.go`
+2. Add a branch in `Install()` dispatch in `internal/tools/tools.go`
+3. Add to the install method reference table in `docs/configuration.md`
+4. Add test cases in `internal/tools/tools_test.go`
+5. Document in `docs/configuration.md`
 
-## Common patterns (to be implemented)
+## Common helpers (use these, do not reimplement)
 
-- `expand(path)`: resolve `~` and `$VAR` → absolute path
-- `run(cmd)`: exec with structured error wrapping
-- `idempotentInsert(path, content, marker)`: marker-delimited block insert/update
-- `sha256File(path)`: content hash for change detection
-- `backup(path)`: copy to `path.dots-bak` before overwriting
+- `fileutil.Expand(path)`: resolve `~` and `$VAR` → absolute path
+- `fileutil.Sha256File(path)`: content hash for change detection
+- `fileutil.Backup(path)`: copy to `path.dots-bak` before overwriting
+- `fileutil.EnsureParent(path)`: mkdir -p for the parent directory
+- `fileutil.CopyFile(src, dst)`: copy with parent creation
+- `shell.InsertBlock(path, content, dryRun)`: marker-delimited block insert/update
+- `shell.RemoveBlock(path, dryRun)`: remove marker-delimited block

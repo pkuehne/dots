@@ -1,7 +1,8 @@
 # ADR 012: Minimum Python Version
 
 ## Status
-Accepted (supersedes the implicit 3.8 floor)
+
+Superseded by ADR 014 (Go rewrite — no Python version floor applies)
 
 ## Context
 The initial implementation targeted Python 3.8 as the minimum version. This was overly conservative — 3.8 reached end-of-life in October 2024 and 3.9 in October 2025. Targeting EOL interpreters means carrying compatibility workarounds (e.g., `typing.List` instead of `list`, no `match` statements) while those Python versions no longer receive security patches.

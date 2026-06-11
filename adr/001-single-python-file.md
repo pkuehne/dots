@@ -1,5 +1,9 @@
 # ADR 001: Single Python File
 
+## Status
+
+Superseded by ADR 014 (Go rewrite)
+
 ## Context
 dots needs to be easy to bootstrap on any system — including bare servers, Termux, and fresh macOS installs.
 

@@ -1,7 +1,8 @@
 # ADR 011: Package Split
 
 ## Status
-Accepted (supersedes ADR 001)
+
+Superseded by ADR 014 (Go rewrite); previously superseded ADR 001
 
 ## Context
 ADR 001 chose a single-file design for maximum portability. As dots grew to ~3000 lines, the monolith became hard to navigate and impossible to install via `pipx`. Users expect `pipx install .` to work for CLI tools, and the single extensionless file could not provide a standard entry point.

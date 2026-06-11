@@ -13,7 +13,7 @@ Or use the automated scanner: `dots migrate --write`
 ## From chezmoi
 
 1. Create `files/` and copy your chezmoi source files (strip `dot_` prefixes, `private_` prefixes)
-2. Rename `.tmpl` → `.j2` and update template syntax (chezmoi uses Go templates, dots uses Jinja2)
+2. Rename `.tmpl` → `.j2` and update template syntax (dots uses Go `text/template`: `{{ .var }}` not `{{ var }}`)
 3. Move platform-specific files to `files.d/{platform}/`
 4. Create `dots.toml` with `[env]`, `[shell]`, etc. as needed
 
