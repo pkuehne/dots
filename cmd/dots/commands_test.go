@@ -318,6 +318,74 @@ func TestApplyPresets_TmuxWritesConfig(t *testing.T) {
 	}
 }
 
+func TestWriteUserFile_BacksUpForeignFile(t *testing.T) {
+	dir := t.TempDir()
+	dst := filepath.Join(dir, ".tmux.conf")
+	original := "# my hand-written tmux config\nset -g mouse on\n"
+	if err := os.WriteFile(dst, []byte(original), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	action, err := writeUserFile(dst, "# new generated content\n")
+	if err != nil {
+		t.Fatalf("writeUserFile: %v", err)
+	}
+	if action != "backed up & wrote" {
+		t.Errorf("action = %q, want %q", action, "backed up & wrote")
+	}
+
+	bak, err := os.ReadFile(dst + ".dots-bak")
+	if err != nil {
+		t.Fatalf("backup not created: %v", err)
+	}
+	if string(bak) != original {
+		t.Error("backup does not preserve the original content")
+	}
+	data, _ := os.ReadFile(dst)
+	if string(data) != "# new generated content\n" {
+		t.Error("destination not overwritten with new content")
+	}
+}
+
+func TestWriteUserFile_SkipsUnchanged(t *testing.T) {
+	dir := t.TempDir()
+	dst := filepath.Join(dir, ".profile")
+	content := "# unchanged content\n"
+	if err := os.WriteFile(dst, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	action, err := writeUserFile(dst, content)
+	if err != nil {
+		t.Fatalf("writeUserFile: %v", err)
+	}
+	if action != "unchanged" {
+		t.Errorf("action = %q, want %q", action, "unchanged")
+	}
+	if _, err := os.Stat(dst + ".dots-bak"); !os.IsNotExist(err) {
+		t.Error("unchanged write must not create a backup")
+	}
+}
+
+func TestWriteUserFile_NoBackupForGenerated(t *testing.T) {
+	dir := t.TempDir()
+	dst := filepath.Join(dir, ".zprofile")
+	if err := os.WriteFile(dst, []byte(shell.GeneratedHeader+"\nold\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	action, err := writeUserFile(dst, shell.GeneratedHeader+"\nnew\n")
+	if err != nil {
+		t.Fatalf("writeUserFile: %v", err)
+	}
+	if action != "wrote" {
+		t.Errorf("action = %q, want %q", action, "wrote")
+	}
+	if _, err := os.Stat(dst + ".dots-bak"); !os.IsNotExist(err) {
+		t.Error("dots-generated file must be overwritten without a backup")
+	}
+}
+
 func TestApplyPresets_DryRunNoWrites(t *testing.T) {
 	cfg := makeShellCfg(t)
 	cfg.Presets.Fzf = true

@@ -19,6 +19,7 @@ import (
 
 	"github.com/pkuehne/dots/internal/config"
 	"github.com/pkuehne/dots/internal/errs"
+	"github.com/pkuehne/dots/internal/fileutil"
 	"github.com/pkuehne/dots/internal/platform"
 )
 
@@ -108,7 +109,7 @@ func Install(tool config.Tool, cfg config.Config, plat, arch string, opts Instal
 	if binDir == "" {
 		binDir = "~/.local/bin"
 	}
-	binDir = expandHome(binDir)
+	binDir = fileutil.Expand(binDir)
 
 	return installTool(tool, *inst, plat, binDir)
 }
@@ -651,18 +652,4 @@ func globMatch(pattern, name string) bool {
 	).Replace(regexp.QuoteMeta(pattern)) + "$"
 	matched, _ := regexp.MatchString(re, name)
 	return matched
-}
-
-func expandHome(path string) string {
-	if path == "~" {
-		if h, err := os.UserHomeDir(); err == nil {
-			return h
-		}
-	}
-	if strings.HasPrefix(path, "~/") {
-		if h, err := os.UserHomeDir(); err == nil {
-			return filepath.Join(h, path[2:])
-		}
-	}
-	return path
 }

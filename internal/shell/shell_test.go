@@ -390,6 +390,25 @@ func TestCleanRemovesStale(t *testing.T) {
 	}
 }
 
+func TestCleanKeepsFzfPreset(t *testing.T) {
+	dir := t.TempDir()
+	fzf := filepath.Join(dir, "030-fzf.sh")
+	_ = os.WriteFile(fzf, []byte("# fzf preset"), 0o644)
+
+	cfg := config.Config{
+		Shell:    config.ShellConfig{Dir: dir},
+		RepoRoot: t.TempDir(),
+	}
+	cfg.Presets.Fzf = true
+
+	if err := Clean(cfg, false); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(fzf); err != nil {
+		t.Error("030-fzf.sh should survive Clean when the fzf preset is enabled")
+	}
+}
+
 func TestAssembled(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	dir := t.TempDir()
