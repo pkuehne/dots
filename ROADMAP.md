@@ -7,8 +7,7 @@ Contributions welcome — open an issue to discuss before starting larger items.
 
 - [ ] Add LICENSE file (MIT)
 - [ ] Add CHANGELOG.md skeleton (release-please will populate it on first release)
-- [ ] Implement `internal/tools` — GitHub release download, apt/brew/script install methods
-- [ ] Wire subsystem commands (shell/git/ssh/tools/repos/presets) into `apply` orchestration
+- [ ] Wire subsystem commands (shell/git/ssh/tools/repos/presets) into `apply` orchestration (Phase 7)
 - [ ] `--quiet` / `--verbose` flags for scripting and debugging
 - [ ] Shell completions (`dots completion bash/zsh/fish` via cobra)
 - [ ] Post-install hooks for tools (e.g. rebuild bat cache, run plugin install)

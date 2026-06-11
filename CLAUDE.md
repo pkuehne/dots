@@ -54,7 +54,7 @@ internal/ssh/      SSH config generation + WriteManaged/Uninit — implemented
 internal/secrets/  age encrypt/decrypt — implemented
 internal/presets/  Preset generation + Eject — implemented
 internal/repos/    Repo cloning + Update/Status — implemented
-internal/tools/    Tool installation — STUB (pending Phase 5)
+internal/tools/    Check, Install, Filter + GitHub release download — implemented
 ```
 
 ## Key invariants
