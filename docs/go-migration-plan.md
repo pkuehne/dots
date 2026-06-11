@@ -391,6 +391,167 @@ Read: `cmd/dots/commands.go` (`runAdd`, `runDoctor`, `newCompletionCmd`),
 
 Commit: `fix(cli): make add idempotent, clean up doctor checks and exit codes`
 
+---
+
+## Second review (2026-06-11, after phases 11–15)
+
+A second pass compared the Go code against the last Python implementation
+(`git show 'ed9aa5d^:src/dots/<file>'` — ed9aa5d is the commit that removed
+`src/dots/`). It found one large missing feature and several parity gaps the
+first review missed. Same rules: read only the listed files, one commit per
+phase, `go build ./... && go test ./...` green before committing, stop after
+the phase. Use `git show 'ed9aa5d^:src/dots/commands.py'` etc. to read the
+Python spec where referenced.
+
+### Phase 16 — deploy user snippets from shell/ (missing feature)
+
+Python's `_apply_shell` (commands.py:365-450) copied every file from the
+repo's `shell/` directory into shell.d, warning when a numeric prefix fell
+outside the ranges 030-049, 080-089, 090+. The Go version never reads
+`shell/` at all — yet `dots init` creates it, and docs/architecture.md
+lists "Deploy user snippets from shell/" as apply step 3. Worse,
+`shell.Clean`'s `expected` map doesn't know these files, so `dots shell
+clean` deletes any user snippet that was deployed by the Python version.
+
+Read: `internal/shell/shell.go`, `internal/shell/shell_test.go`,
+`cmd/dots/commands.go` (`applyShell` only), and the Python
+`_apply_shell` via git show.
+
+1. In `WriteSnippets` (or a sibling `DeployUserSnippets` called from it):
+   if `<repoRoot>/shell/` exists, copy each regular file into shell.d
+   (skip names failing `fileutil.ShouldSkip`). Print the prefix-range
+   warning exactly as Python does. `.j2` files in shell/: do **not**
+   render (no Jinja2 in Go, same decision as Phase 14) — print
+   "skipped (template — not supported)" instead of installing them.
+2. Add the deployed names to `Clean`'s `expected` map (derive both from
+   one helper listing shell/ contents so they cannot drift).
+3. Honor dry-run. Tests: shell/ fixture with an in-range file, an
+   out-of-range prefix (warning), and a `.j2` (skipped); plus a Clean
+   test asserting deployed user snippets survive.
+
+Commit: `feat(shell): deploy user snippets from the shell/ directory`
+
+### Phase 17 — tool snippet parity
+
+Python (commands.py:421-442) skipped tools with no `shell.env` and no
+`shell.init`, and when `shell.init` contained `{shell}` it wrote per-shell
+variants `050-{name}.zsh` + `050-{name}.bash` (PR #9); otherwise a single
+`050-{name}.sh` generated with shell_name="bash". The Go `WriteSnippets`
+writes one `050-{name}.sh` for **every** tool (empty guard-only snippets
+for tools with no shell config) and hardcodes shell_name="zsh" — so bash
+users source zsh-flavored init lines, regressing PR #9.
+
+Read: `internal/shell/shell.go` (`WriteSnippets`, `GenerateToolSnippet`,
+`Clean`), `internal/shell/shell_test.go`, Python `_apply_shell` via git
+show.
+
+1. Skip tools where `len(Shell.Env) == 0 && Shell.Init == ""`.
+2. If `Shell.Init` contains `{shell}`: write `050-{name}.zsh` (zsh) and
+   `050-{name}.bash` (bash). Else: write `050-{name}.sh` with
+   shell_name="bash" (matching Python's default).
+3. Mirror the same naming logic in `Clean`'s `expected` map (shared
+   helper, same anti-drift comment as fzf).
+4. Tests for all three shapes; assert Clean keeps the new names and
+   removes a stale `050-{name}.sh` left over after a tool gains
+   `{shell}` in its init.
+
+Note (decide, then document — no code change): Python named the custom
+snippet `000-custom.sh` (sourced before env/path); Go writes
+`099-custom.sh` (sourced last) and docs/architecture.md still says 000.
+Keeping 099 is reasonable (custom overrides generated), but then update
+docs/architecture.md and add a line to docs/migration.md that
+Python-era `000-custom.sh` is removed by `dots shell clean`.
+
+Commit: `fix(shell): match Python tool-snippet generation and naming`
+
+### Phase 18 — tools ignore their platform scoping (Tool.Only)
+
+`Tool.Only` is parsed into the config but never read: Python filtered
+`[t for t in config.tools if matches_platform(t.only, plat)]` in
+`_apply_tools` **and** in the `tools check/install/list` dispatch
+(commands.py:715-758). In Go, a tool with `only = ["darwin"]` is checked,
+installed, listed — and gets a 050 shell snippet — on every platform.
+
+Read: `internal/tools/tools.go` (`Filter`, `Check`), `cmd/dots/commands.go`
+(`applyTools`, `newToolsCmd`), `internal/shell/shell.go` (`WriteSnippets`,
+`Clean`), `internal/tools/tools_test.go`.
+
+1. Add platform filtering to `tools.Filter` (new `platforms []string`
+   parameter, matching rule: `Only` empty or intersects — same as
+   Phase 13) and apply it in `applyTools` and all three `tools`
+   subcommands, passing `platform.Platforms()`.
+2. Apply the same filter in `shell.WriteSnippets`/`Clean` so
+   platform-excluded tools get no snippet (and theirs are cleaned).
+3. `tools.Check`'s `plat, arch` parameters are currently unused — either
+   use them for the filtering or drop them; don't leave dead parameters.
+4. Tests: tool with `Only: ["darwin"]` on `Platforms: ["linux","wsl"]`
+   is filtered everywhere.
+
+Commit: `fix(tools): honor tool-level only platform scoping`
+
+### Phase 19 — FileEntry.Mode is ignored + copy never replaces a symlink
+
+Two deploy parity gaps against Python deploy.py:
+
+Read: `internal/deploy/deploy.go`, `internal/deploy/deploy_test.go`,
+Python deploy.py via git show (`_apply_mode`, the copy/secret branches).
+
+1. **`mode` is parsed but never applied.** Python ran
+   `_apply_mode(dst, entry.mode)` after every copy/secret/unchanged-copy
+   path, and `_write_secret` defaulted to "600". In Go, add: after a
+   successful copy (and on the "unchanged" copy path), if
+   `entry.Mode != ""` parse it as octal (`strconv.ParseUint(mode, 8, 32)`)
+   and `os.Chmod(dst, ...)`; for secrets use `entry.Mode` when set, else
+   keep 0600. Invalid mode string → `Result.Err` with a hint showing the
+   accepted format. Symlink entries: mode is meaningless — ignore it
+   (Python did not chmod symlinks either).
+2. **Copy mode never converts an existing symlink.** `applyCopy` hashes
+   `dst` through the symlink, sees equal content, and returns "unchanged",
+   so `--copy` (or `default_mode = "copy"`, or `link = false`) leaves the
+   symlink in place forever. Python treated "dst is a symlink" as
+   always-replace: backup, unlink, copy. Match that: in `applyCopy`, check
+   `os.Lstat` mode for `ModeSymlink` before the hash comparison and go
+   straight to backup+replace. Optionally make `Status` report such
+   entries as "diff" rather than "linked" ✓ (it currently calls any
+   correct-target symlink "linked" even when the entry wants a copy).
+3. Tests: `mode = "600"` on a copy entry; secret honoring custom mode;
+   copy entry over an existing correct symlink → "copied" and dst is a
+   regular file.
+
+Commit: `fix(deploy): apply file modes and convert symlinks in copy mode`
+
+### Phase 20 — cosmetics and stale docs
+
+Read: `cmd/dots/commands.go` (`printResults`, `applyPresets`),
+`internal/shell/shell.go` (`Clean`), `internal/tools/tools.go`
+(`safeTarExtractAll`), `docs/architecture.md`.
+
+1. `printResults` summary line never counts secrets: include
+   "N decrypted" (covering both the dry-run "decrypt" and real
+   "decrypted" actions) when nonzero.
+2. fzf condition mismatch: `applyPresets` writes `030-fzf.sh` only when
+   `cfg.Presets.Fzf && cfg.Shell.Managed`, but `shell.Clean` expects it
+   whenever `cfg.Presets.Fzf`. Align Clean to the same compound condition.
+3. `tar.TypeRegA` is deprecated (and normalized to `TypeReg` by the tar
+   reader anyway) — drop it from the switch in `safeTarExtractAll`.
+4. docs/architecture.md is stale: "tools/ … stub pending implementation"
+   (line ~24), and the apply-steps list still reflects Python (000-custom
+   naming — fix per the Phase 17 decision). Update to match the Go code.
+
+Commit: `chore: fix result counts, clean conditions, and stale docs`
+
+### Reviewed and intentionally not changed
+
+- Dry-run deploy reports "link"/"copy" without checking current state, so
+  `dots preview` doesn't say "unchanged" — Python printed
+  `SYMLINK/COPY → dst` unconditionally too. Parity; leave.
+- `InsertBlock` writes through a symlinked `~/.zshrc` into the repo's
+  `files/.zshrc` (which then feeds 099-custom.sh). Python's
+  `idempotent_insert` had the identical behavior. Pre-existing design
+  quirk, not a migration bug; leave.
+- `Tool.Profile` is parsed but unused — it was equally unused in the
+  Python version. Leave (or delete the field in a later cleanup).
+
 ### Known limitations (documented, not scheduled)
 
 - tar extraction validates symlink entries but never creates them (only
