@@ -345,6 +345,9 @@ func printResults(results []deploy.Result, dryRun bool) int {
 		counts["unchanged"],
 		counts["skipped"],
 	)
+	if n := counts["decrypted"] + counts["decrypt"]; n > 0 {
+		fmt.Printf(", %d decrypted", n)
+	}
 	if counts["missing"] > 0 {
 		fmt.Printf(", %d missing", counts["missing"])
 	}

@@ -537,7 +537,7 @@ func safeTarExtractAll(archivePath, dest string) error {
 			if err := os.MkdirAll(memberPath, 0o755); err != nil {
 				return errs.NewTool("cannot create directory from archive", err.Error())
 			}
-		case tar.TypeReg, tar.TypeRegA:
+		case tar.TypeReg:
 			if err := os.MkdirAll(filepath.Dir(memberPath), 0o755); err != nil {
 				return errs.NewTool("cannot create parent directory", err.Error())
 			}

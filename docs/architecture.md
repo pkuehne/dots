@@ -10,9 +10,9 @@ dots is a Go CLI tool for dotfile management, tool installation, and shell envir
 cmd/dots/          CLI entry point (main.go + commands.go)
 internal/
   config/          Config structs + Load(), FindRepoRoot(), TOML parsing
-  platform/        OS/arch detection (Detect(), DetectArch())
+  platform/        OS/arch detection (Detect(), Platforms(), Arch())
   errs/            DotsError with Hint field; ConfigError, ToolInstallError
-  fileutil/        Expand(), Sha256File(), Backup(), EnsureParent(), CopyFile()
+  fileutil/        Expand(), SHA256File(), Backup(), EnsureParent(), CopyFile()
   discovery/       Walk() — discovers files/ and files.d/{platform}/
   deploy/          Apply(), ApplyAll() — symlink/copy/decrypt + Result reporting
   shell/           Snippet generation, InsertBlock(), RemoveBlock(), WriteSnippets()
@@ -21,7 +21,7 @@ internal/
   secrets/         Encrypt(), Decrypt(), DecryptToMemory() via age subprocess
   presets/         GenerateFzf(), TmuxPreset, GenerateZprofile(), Eject()
   repos/           Clone(), Update(), Status(), Filter() via git subprocess
-  tools/           Check(), Install(), Filter() — stub pending implementation
+  tools/           Check(), Install(), Filter() + GitHub release download
 ```
 
 ## Configuration Levels

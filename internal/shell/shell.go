@@ -372,9 +372,10 @@ func Clean(cfg config.Config, dryRun bool) error {
 		"020-path.sh": true,
 	}
 	// Keep in sync with applyPresets in cmd/dots/commands.go, which writes
-	// 030-fzf.sh into shell.d when the fzf preset is enabled. Without this
-	// entry, Clean would delete the preset that apply just wrote.
-	if cfg.Presets.Fzf {
+	// 030-fzf.sh into shell.d when the fzf preset is enabled and the shell is
+	// managed. Without this entry, Clean would delete the preset that apply
+	// just wrote.
+	if cfg.Presets.Fzf && cfg.Shell.Managed {
 		expected["030-fzf.sh"] = true
 	}
 	plats := platform.Platforms()

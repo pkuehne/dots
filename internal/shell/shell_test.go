@@ -627,7 +627,7 @@ func TestCleanKeepsFzfPreset(t *testing.T) {
 	_ = os.WriteFile(fzf, []byte("# fzf preset"), 0o644)
 
 	cfg := config.Config{
-		Shell:    config.ShellConfig{Dir: dir},
+		Shell:    config.ShellConfig{Dir: dir, Managed: true},
 		RepoRoot: t.TempDir(),
 	}
 	cfg.Presets.Fzf = true
@@ -637,6 +637,27 @@ func TestCleanKeepsFzfPreset(t *testing.T) {
 	}
 	if _, err := os.Stat(fzf); err != nil {
 		t.Error("030-fzf.sh should survive Clean when the fzf preset is enabled")
+	}
+}
+
+func TestCleanRemovesFzfPresetWhenShellUnmanaged(t *testing.T) {
+	dir := t.TempDir()
+	fzf := filepath.Join(dir, "030-fzf.sh")
+	_ = os.WriteFile(fzf, []byte("# fzf preset"), 0o644)
+
+	// apply only writes the fzf preset when shell.managed is also true, so
+	// Clean must treat it as stale when the shell is unmanaged.
+	cfg := config.Config{
+		Shell:    config.ShellConfig{Dir: dir, Managed: false},
+		RepoRoot: t.TempDir(),
+	}
+	cfg.Presets.Fzf = true
+
+	if err := Clean(cfg, false); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(fzf); !os.IsNotExist(err) {
+		t.Error("030-fzf.sh should be removed when the shell is unmanaged")
 	}
 }
 
