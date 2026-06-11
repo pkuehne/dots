@@ -10,14 +10,19 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/pkuehne/dots/internal/config"
 	"github.com/pkuehne/dots/internal/deploy"
 	"github.com/pkuehne/dots/internal/discovery"
 	"github.com/pkuehne/dots/internal/errs"
 	"github.com/pkuehne/dots/internal/fileutil"
+	gogit "github.com/pkuehne/dots/internal/git"
 	"github.com/pkuehne/dots/internal/platform"
+	"github.com/pkuehne/dots/internal/presets"
+	"github.com/pkuehne/dots/internal/repos"
 	"github.com/pkuehne/dots/internal/secrets"
 	"github.com/pkuehne/dots/internal/shell"
 	gossh "github.com/pkuehne/dots/internal/ssh"
+	"github.com/pkuehne/dots/internal/tools"
 )
 
 // ── init ─────────────────────────────────────────────────────────────────────
@@ -74,27 +79,191 @@ func newApplyCmd() *cobra.Command {
 		Use:   "apply [files...]",
 		Short: "Deploy files and generate managed configs",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			opts := deploy.Options{
-				DryRun:        dryRun,
-				ForceCopy:     forceCopy,
-				RepoRoot:      globals.cfg.RepoRoot,
-				DefaultMode:   globals.cfg.Meta.DefaultMode,
-				ActiveProfile: globals.cfg.ActiveProfile,
-			}
-
-			entries, err := discovery.Walk(globals.cfg, platform.Detect())
-			if err != nil {
-				return err
-			}
-
-			results := deploy.ApplyAll(entries, opts)
-			printResults(results, dryRun)
-			return nil
+			return runApply(globals.cfg, args, dryRun, forceCopy)
 		},
 	}
 	cmd.Flags().BoolVarP(&dryRun, "dry-run", "n", false, "print actions without executing")
 	cmd.Flags().BoolVarP(&forceCopy, "copy", "c", false, "force copy mode instead of symlink")
 	return cmd
+}
+
+func runApply(cfg config.Config, fileArgs []string, dryRun, forceCopy bool) error {
+	filesOnly := len(fileArgs) > 0
+
+	opts := deploy.Options{
+		DryRun:        dryRun,
+		ForceCopy:     forceCopy,
+		RepoRoot:      cfg.RepoRoot,
+		DefaultMode:   cfg.Meta.DefaultMode,
+		ActiveProfile: cfg.ActiveProfile,
+	}
+
+	entries, err := discovery.Walk(cfg, platform.Detect())
+	if err != nil {
+		return err
+	}
+
+	if filesOnly {
+		var filtered []config.FileEntry
+		for _, e := range entries {
+			for _, a := range fileArgs {
+				if strings.Contains(e.Src, a) || strings.Contains(e.Dst, a) ||
+					filepath.Base(e.Dst) == a {
+					filtered = append(filtered, e)
+					break
+				}
+			}
+		}
+		entries = filtered
+	}
+
+	results := deploy.ApplyAll(entries, opts)
+	printResults(results, dryRun)
+
+	if filesOnly {
+		return nil
+	}
+
+	if err := applyShell(cfg, dryRun); err != nil {
+		return err
+	}
+	if err := applyGit(cfg, dryRun); err != nil {
+		return err
+	}
+	if err := applySSH(cfg, dryRun); err != nil {
+		return err
+	}
+	if err := applyRepos(cfg, dryRun); err != nil {
+		return err
+	}
+	if err := applyPresets(cfg, dryRun); err != nil {
+		return err
+	}
+	if err := applyTools(cfg, dryRun); err != nil {
+		return err
+	}
+	if err := applyLoginShell(cfg, dryRun); err != nil {
+		return err
+	}
+	return nil
+}
+
+func applyShell(cfg config.Config, dryRun bool) error {
+	if !cfg.Shell.Managed {
+		return nil
+	}
+	if err := shell.WriteSnippets(cfg, dryRun); err != nil {
+		return err
+	}
+	return shell.InsertSourceLine(cfg, dryRun)
+}
+
+func applyGit(cfg config.Config, dryRun bool) error {
+	if !cfg.Git.Managed {
+		return nil
+	}
+	return gogit.WriteManaged(cfg, dryRun)
+}
+
+func applySSH(cfg config.Config, dryRun bool) error {
+	if !cfg.SSH.Managed {
+		return nil
+	}
+	return gossh.WriteManaged(cfg, platform.Detect(), dryRun)
+}
+
+func applyRepos(cfg config.Config, dryRun bool) error {
+	if len(cfg.Repos) == 0 {
+		return nil
+	}
+	return repos.Clone(cfg, nil, dryRun)
+}
+
+func applyPresets(cfg config.Config, dryRun bool) error {
+	if cfg.Presets.Fzf && cfg.Shell.Managed {
+		content, err := presets.Generate("fzf", cfg)
+		if err != nil {
+			return err
+		}
+		dir := fileutil.Expand(cfg.Shell.Dir)
+		dst := filepath.Join(dir, "030-fzf.sh")
+		if !dryRun {
+			if err := os.MkdirAll(dir, 0o755); err != nil {
+				return err
+			}
+			if err := os.WriteFile(dst, []byte(content), 0o644); err != nil {
+				return err
+			}
+			fmt.Printf("  wrote fzf preset → %s\n", dst)
+		} else {
+			fmt.Printf("  would write fzf preset → %s\n", dst)
+		}
+	}
+	if cfg.Presets.Tmux {
+		content, err := presets.Generate("tmux", cfg)
+		if err != nil {
+			return err
+		}
+		dst := fileutil.Expand("~/.tmux.conf")
+		if !dryRun {
+			if err := os.WriteFile(dst, []byte(content), 0o644); err != nil {
+				return err
+			}
+			fmt.Printf("  wrote tmux preset → %s\n", dst)
+		} else {
+			fmt.Printf("  would write tmux preset → %s\n", dst)
+		}
+	}
+	return nil
+}
+
+func applyTools(cfg config.Config, dryRun bool) error {
+	if len(cfg.Tools) == 0 {
+		return nil
+	}
+	plat := platform.Detect()
+	arch := platform.Arch()
+	results := tools.Check(cfg.Tools, plat, arch)
+	opts := tools.InstallOptions{DryRun: dryRun}
+	installErrors := 0
+	for _, r := range results {
+		if r.Installed {
+			continue
+		}
+		if err := tools.Install(r.Tool, cfg, plat, arch, opts); err != nil {
+			fmt.Fprintf(os.Stderr, "  ✗ %s: %v\n", r.Tool.Name, err)
+			installErrors++
+		} else if dryRun {
+			fmt.Printf("  would install %s\n", r.Tool.Name)
+		} else {
+			fmt.Printf("  ✓ installed %s\n", r.Tool.Name)
+		}
+	}
+	if installErrors > 0 {
+		return errs.New(fmt.Sprintf("%d tool(s) failed to install", installErrors),
+			"Run 'dots tools check' for details.")
+	}
+	return nil
+}
+
+func applyLoginShell(cfg config.Config, dryRun bool) error {
+	if !cfg.Shell.Managed || !cfg.Shell.Login {
+		return nil
+	}
+	zprofile := fileutil.Expand("~/.zprofile")
+	profile := fileutil.Expand("~/.profile")
+	if dryRun {
+		fmt.Printf("  would write login shell: %s, %s\n", zprofile, profile)
+		return nil
+	}
+	if err := os.WriteFile(zprofile, []byte(presets.GenerateZprofile(cfg)), 0o644); err != nil {
+		return err
+	}
+	if err := os.WriteFile(profile, []byte(presets.GenerateProfile(cfg)), 0o644); err != nil {
+		return err
+	}
+	fmt.Printf("  wrote login shell: %s, %s\n", zprofile, profile)
+	return nil
 }
 
 func printResults(results []deploy.Result, dryRun bool) {
@@ -135,7 +304,7 @@ func newPreviewCmd() *cobra.Command {
 		Use:   "preview [files...]",
 		Short: "Alias for apply --dry-run",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return todo("preview")
+			return runApply(globals.cfg, args, true, false)
 		},
 	}
 }
@@ -147,9 +316,62 @@ func newStatusCmd() *cobra.Command {
 		Use:   "status",
 		Short: "Show deployment state",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return todo("status")
+			return runStatus(globals.cfg)
 		},
 	}
+}
+
+func runStatus(cfg config.Config) error {
+	entries, err := discovery.Walk(cfg, platform.Detect())
+	if err != nil {
+		return err
+	}
+	opts := deploy.Options{
+		RepoRoot:      cfg.RepoRoot,
+		DefaultMode:   cfg.Meta.DefaultMode,
+		ActiveProfile: cfg.ActiveProfile,
+	}
+	fmt.Println("Files:")
+	for _, e := range entries {
+		r := deploy.Status(e, opts)
+		if r.Action == "skipped" {
+			continue
+		}
+		icon := " "
+		switch r.Action {
+		case "linked", "copied", "unchanged":
+			icon = "✓"
+		case "missing":
+			icon = "✗"
+		case "diff":
+			icon = "~"
+		}
+		fmt.Printf("  %s  %-10s  %s\n", icon, r.Action, e.Dst)
+	}
+
+	if len(cfg.Repos) > 0 {
+		fmt.Println("\nRepos:")
+		states, err := repos.Status(cfg)
+		if err != nil {
+			return err
+		}
+		for _, s := range states {
+			icon := "?"
+			state := "unknown"
+			switch {
+			case !s.Exists:
+				icon, state = "✗", "missing"
+			case s.Dirty:
+				icon, state = "~", "dirty"
+			case s.Behind > 0:
+				icon, state = "↓", fmt.Sprintf("behind %d", s.Behind)
+			default:
+				icon, state = "✓", "ok"
+			}
+			fmt.Printf("  %s  %-10s  %s\n", icon, state, s.Entry.Dst)
+		}
+	}
+	return nil
 }
 
 func newDiffCmd() *cobra.Command {
@@ -158,9 +380,48 @@ func newDiffCmd() *cobra.Command {
 		Short: "Show diffs between source and deployed files",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return todo("diff")
+			filter := ""
+			if len(args) > 0 {
+				filter = args[0]
+			}
+			return runDiff(globals.cfg, filter)
 		},
 	}
+}
+
+func runDiff(cfg config.Config, filter string) error {
+	entries, err := discovery.Walk(cfg, platform.Detect())
+	if err != nil {
+		return err
+	}
+	opts := deploy.Options{
+		RepoRoot:      cfg.RepoRoot,
+		DefaultMode:   cfg.Meta.DefaultMode,
+		ActiveProfile: cfg.ActiveProfile,
+	}
+	any := false
+	for _, e := range entries {
+		if filter != "" && !strings.Contains(e.Dst, filter) &&
+			!strings.Contains(e.Src, filter) &&
+			filepath.Base(e.Dst) != filter {
+			continue
+		}
+		r := deploy.Status(e, opts)
+		if r.Action != "diff" {
+			continue
+		}
+		any = true
+		src := filepath.Join(cfg.RepoRoot, e.Src)
+		dst := fileutil.Expand(e.Dst)
+		cmd := exec.Command("diff", "-u", dst, src)
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		_ = cmd.Run() // diff exits 1 when files differ — that's normal
+	}
+	if !any {
+		fmt.Println("  No diffs found.")
+	}
+	return nil
 }
 
 func newListCmd() *cobra.Command {
@@ -169,12 +430,31 @@ func newListCmd() *cobra.Command {
 		Use:   "list",
 		Short: "List managed files",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			_ = showAll
-			return todo("list")
+			return runList(globals.cfg, showAll)
 		},
 	}
 	cmd.Flags().BoolVar(&showAll, "all", false, "include skipped files")
 	return cmd
+}
+
+func runList(cfg config.Config, showAll bool) error {
+	entries, err := discovery.Walk(cfg, platform.Detect())
+	if err != nil {
+		return err
+	}
+	opts := deploy.Options{
+		RepoRoot:      cfg.RepoRoot,
+		DefaultMode:   cfg.Meta.DefaultMode,
+		ActiveProfile: cfg.ActiveProfile,
+	}
+	for _, e := range entries {
+		r := deploy.Status(e, opts)
+		if r.Action == "skipped" && !showAll {
+			continue
+		}
+		fmt.Printf("  %-12s  %s\n", r.Action, e.Dst)
+	}
+	return nil
 }
 
 // ── edit / add ───────────────────────────────────────────────────────────────
@@ -618,42 +898,101 @@ func newToolsCmd() *cobra.Command {
 		Short: "Manage tool installations",
 	}
 
-	var tag string
-
+	var checkTag string
 	check := &cobra.Command{
 		Use:   "check [names...]",
 		Short: "Check which configured tools are installed",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			_ = tag
-			return todo("tools check")
+			plat := platform.Detect()
+			arch := platform.Arch()
+			filtered := tools.Filter(globals.cfg.Tools, args, checkTag)
+			if len(filtered) == 0 {
+				fmt.Println("  No tools configured.")
+				return nil
+			}
+			results := tools.Check(filtered, plat, arch)
+			installed := 0
+			for _, r := range results {
+				icon := "✗"
+				if r.Installed {
+					icon = "✓"
+					installed++
+				}
+				fmt.Printf("  %s  %s\n", icon, r.Tool.Name)
+			}
+			fmt.Printf("\n%d/%d tools installed\n", installed, len(results))
+			return nil
 		},
 	}
-	check.Flags().StringVar(&tag, "tag", "", "filter by tag")
+	check.Flags().StringVar(&checkTag, "tag", "", "filter by tag")
 
+	var installTag string
+	var installDryRun, installForce bool
 	install := &cobra.Command{
 		Use:   "install [names...]",
 		Short: "Install missing tools",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			plat := platform.Detect()
+			arch := platform.Arch()
+			filtered := tools.Filter(globals.cfg.Tools, args, installTag)
+			if !installForce {
+				results := tools.Check(filtered, plat, arch)
+				var missing []config.Tool
+				for _, r := range results {
+					if !r.Installed {
+						missing = append(missing, r.Tool)
+					}
+				}
+				filtered = missing
+			}
+			if len(filtered) == 0 {
+				fmt.Println("  All tools are already installed.")
+				return nil
+			}
+			opts := tools.InstallOptions{DryRun: installDryRun}
+			installErrors := 0
+			for _, t := range filtered {
+				if err := tools.Install(t, globals.cfg, plat, arch, opts); err != nil {
+					fmt.Fprintf(os.Stderr, "  ✗ %s: %v\n", t.Name, err)
+					installErrors++
+				} else if installDryRun {
+					fmt.Printf("  would install %s\n", t.Name)
+				} else {
+					fmt.Printf("  ✓ installed %s\n", t.Name)
+				}
+			}
+			if installErrors > 0 {
+				return errs.New(fmt.Sprintf("%d tool(s) failed to install", installErrors),
+					"Check the error messages above for details.")
+			}
+			return nil
+		},
 	}
-	var dryRun, force bool
-	install.Flags().StringVar(&tag, "tag", "", "filter by tag")
-	install.Flags().BoolVarP(&dryRun, "dry-run", "n", false, "print actions without executing")
-	install.Flags().BoolVarP(&force, "force", "f", false, "reinstall even if present")
-	install.RunE = func(cmd *cobra.Command, args []string) error {
-		_ = tag
-		_ = dryRun
-		_ = force
-		return todo("tools install")
-	}
+	install.Flags().StringVar(&installTag, "tag", "", "filter by tag")
+	install.Flags().BoolVarP(&installDryRun, "dry-run", "n", false, "print actions without executing")
+	install.Flags().BoolVarP(&installForce, "force", "f", false, "reinstall even if present")
 
+	var listTag string
 	list := &cobra.Command{
 		Use:   "list",
 		Short: "List configured tools",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			_ = tag
-			return todo("tools list")
+			filtered := tools.Filter(globals.cfg.Tools, args, listTag)
+			if len(filtered) == 0 {
+				fmt.Println("  No tools configured.")
+				return nil
+			}
+			for _, t := range filtered {
+				tags := ""
+				if len(t.Tags) > 0 {
+					tags = " [" + strings.Join(t.Tags, ", ") + "]"
+				}
+				fmt.Printf("  %-20s%s\n", t.Name, tags)
+			}
+			return nil
 		},
 	}
-	list.Flags().StringVar(&tag, "tag", "", "filter by tag")
+	list.Flags().StringVar(&listTag, "tag", "", "filter by tag")
 
 	cmd.AddCommand(check, install, list)
 	return cmd
@@ -667,27 +1006,35 @@ func newShellCmd() *cobra.Command {
 		Short: "Manage shell integration",
 	}
 
+	var assembled bool
 	show := &cobra.Command{
 		Use:   "show",
 		Short: "Print generated shell snippets",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if assembled {
+				content, err := shell.Assembled(globals.cfg)
+				if err != nil {
+					return err
+				}
+				fmt.Print(content)
+				return nil
+			}
+			fmt.Print(shell.GenerateEnvSnippet(globals.cfg))
+			fmt.Print(shell.GeneratePathSnippet(globals.cfg))
+			return nil
+		},
 	}
-	var assembled bool
-	show.Flags().BoolVar(&assembled, "assembled", false, "print full assembled output")
-	show.RunE = func(cmd *cobra.Command, args []string) error {
-		_ = assembled
-		return todo("shell show")
-	}
+	show.Flags().BoolVar(&assembled, "assembled", false, "print full assembled output from shell.d")
 
+	var cleanDryRun bool
 	clean := &cobra.Command{
 		Use:   "clean",
 		Short: "Remove stale snippets",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return shell.Clean(globals.cfg, cleanDryRun)
+		},
 	}
-	var dryRun bool
-	clean.Flags().BoolVarP(&dryRun, "dry-run", "n", false, "print actions without executing")
-	clean.RunE = func(cmd *cobra.Command, args []string) error {
-		_ = dryRun
-		return todo("shell clean")
-	}
+	clean.Flags().BoolVarP(&cleanDryRun, "dry-run", "n", false, "print actions without executing")
 
 	cmd.AddCommand(show, clean)
 	return cmd
@@ -698,23 +1045,55 @@ func newShellCmd() *cobra.Command {
 func newReposCmd() *cobra.Command {
 	cmd := &cobra.Command{Use: "repos", Short: "Manage git repositories"}
 
-	cmd.AddCommand(
-		&cobra.Command{
-			Use:   "clone [names...]",
-			Short: "Clone missing repos",
-			RunE:  func(cmd *cobra.Command, args []string) error { return todo("repos clone") },
+	var cloneDryRun bool
+	clone := &cobra.Command{
+		Use:   "clone [names...]",
+		Short: "Clone missing repos",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return repos.Clone(globals.cfg, args, cloneDryRun)
 		},
-		&cobra.Command{
-			Use:   "update [names...]",
-			Short: "Update cloned repos",
-			RunE:  func(cmd *cobra.Command, args []string) error { return todo("repos update") },
+	}
+	clone.Flags().BoolVarP(&cloneDryRun, "dry-run", "n", false, "print actions without executing")
+
+	var updateDryRun bool
+	update := &cobra.Command{
+		Use:   "update [names...]",
+		Short: "Update cloned repos",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return repos.Update(globals.cfg, args, updateDryRun)
 		},
-		&cobra.Command{
-			Use:   "status",
-			Short: "Show repo states",
-			RunE:  func(cmd *cobra.Command, args []string) error { return todo("repos status") },
+	}
+	update.Flags().BoolVarP(&updateDryRun, "dry-run", "n", false, "print actions without executing")
+
+	status := &cobra.Command{
+		Use:   "status",
+		Short: "Show repo states",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			states, err := repos.Status(globals.cfg)
+			if err != nil {
+				return err
+			}
+			if len(states) == 0 {
+				fmt.Println("  No repos configured.")
+				return nil
+			}
+			for _, s := range states {
+				icon, state := "✓", "ok"
+				switch {
+				case !s.Exists:
+					icon, state = "✗", "missing"
+				case s.Dirty:
+					icon, state = "~", "dirty"
+				case s.Behind > 0:
+					icon, state = "↓", fmt.Sprintf("behind %d", s.Behind)
+				}
+				fmt.Printf("  %s  %-12s  %s\n", icon, state, s.Entry.Dst)
+			}
+			return nil
 		},
-	)
+	}
+
+	cmd.AddCommand(clone, update, status)
 	return cmd
 }
 
@@ -723,30 +1102,35 @@ func newReposCmd() *cobra.Command {
 func newGitCmd() *cobra.Command {
 	cmd := &cobra.Command{Use: "git", Short: "Manage git config"}
 
+	var initDryRun bool
 	initSub := &cobra.Command{
 		Use:   "init",
 		Short: "Enable git managed mode",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return gogit.WriteManaged(globals.cfg, initDryRun)
+		},
 	}
-	var dryRun bool
-	initSub.Flags().BoolVarP(&dryRun, "dry-run", "n", false, "print actions without executing")
-	initSub.RunE = func(cmd *cobra.Command, args []string) error {
-		_ = dryRun
-		return todo("git init")
+	initSub.Flags().BoolVarP(&initDryRun, "dry-run", "n", false, "print actions without executing")
+
+	show := &cobra.Command{
+		Use:   "show",
+		Short: "Print managed.gitconfig",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return gogit.ShowManaged(globals.cfg)
+		},
 	}
 
-	cmd.AddCommand(
-		initSub,
-		&cobra.Command{
-			Use:   "show",
-			Short: "Print managed.gitconfig",
-			RunE:  func(cmd *cobra.Command, args []string) error { return todo("git show") },
+	var uninitDryRun bool
+	uninit := &cobra.Command{
+		Use:   "uninit",
+		Short: "Remove dots [include] from ~/.gitconfig",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return gogit.Uninit(globals.cfg, uninitDryRun)
 		},
-		&cobra.Command{
-			Use:   "uninit",
-			Short: "Remove dots [include] from ~/.gitconfig",
-			RunE:  func(cmd *cobra.Command, args []string) error { return todo("git uninit") },
-		},
-	)
+	}
+	uninit.Flags().BoolVarP(&uninitDryRun, "dry-run", "n", false, "print actions without executing")
+
+	cmd.AddCommand(initSub, show, uninit)
 	return cmd
 }
 
@@ -755,27 +1139,35 @@ func newGitCmd() *cobra.Command {
 func newSSHCmd() *cobra.Command {
 	cmd := &cobra.Command{Use: "ssh", Short: "Manage SSH config"}
 
-	initSub := &cobra.Command{Use: "init", Short: "Enable SSH managed mode"}
-	var dryRun bool
-	initSub.Flags().BoolVarP(&dryRun, "dry-run", "n", false, "print actions without executing")
-	initSub.RunE = func(cmd *cobra.Command, args []string) error {
-		_ = dryRun
-		return todo("ssh init")
+	var initDryRun bool
+	initSub := &cobra.Command{
+		Use:   "init",
+		Short: "Enable SSH managed mode",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return gossh.WriteManaged(globals.cfg, platform.Detect(), initDryRun)
+		},
+	}
+	initSub.Flags().BoolVarP(&initDryRun, "dry-run", "n", false, "print actions without executing")
+
+	show := &cobra.Command{
+		Use:   "show",
+		Short: "Print SSH config fragment",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return gossh.ShowManaged(globals.cfg, platform.Detect())
+		},
 	}
 
-	cmd.AddCommand(
-		initSub,
-		&cobra.Command{
-			Use:   "show",
-			Short: "Print SSH config fragment",
-			RunE:  func(cmd *cobra.Command, args []string) error { return todo("ssh show") },
+	var uninitDryRun bool
+	uninit := &cobra.Command{
+		Use:   "uninit",
+		Short: "Remove dots Include from ~/.ssh/config",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return gossh.Uninit(globals.cfg, uninitDryRun)
 		},
-		&cobra.Command{
-			Use:   "uninit",
-			Short: "Remove dots Include from ~/.ssh/config",
-			RunE:  func(cmd *cobra.Command, args []string) error { return todo("ssh uninit") },
-		},
-	)
+	}
+	uninit.Flags().BoolVarP(&uninitDryRun, "dry-run", "n", false, "print actions without executing")
+
+	cmd.AddCommand(initSub, show, uninit)
 	return cmd
 }
 
@@ -783,19 +1175,67 @@ func newSSHCmd() *cobra.Command {
 
 func newEnvCmd() *cobra.Command {
 	cmd := &cobra.Command{Use: "env", Short: "Manage environment variables"}
-	cmd.AddCommand(
-		&cobra.Command{
-			Use:   "show",
-			Short: "Print 010-env.sh content",
-			RunE:  func(cmd *cobra.Command, args []string) error { return todo("env show") },
+
+	show := &cobra.Command{
+		Use:   "show",
+		Short: "Print 010-env.sh content",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			fmt.Print(shell.GenerateEnvSnippet(globals.cfg))
+			return nil
 		},
-		&cobra.Command{
-			Use:   "check",
-			Short: "Check [[env.when]] conditions",
-			RunE:  func(cmd *cobra.Command, args []string) error { return todo("env check") },
+	}
+
+	check := &cobra.Command{
+		Use:   "check",
+		Short: "Check [[env.when]] conditions",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runEnvCheck(globals.cfg)
 		},
-	)
+	}
+
+	cmd.AddCommand(show, check)
 	return cmd
+}
+
+func runEnvCheck(cfg config.Config) error {
+	if len(cfg.Env.When) == 0 {
+		fmt.Println("  No [[env.when]] conditions configured.")
+		return nil
+	}
+	plat := platform.Detect()
+	for _, w := range cfg.Env.When {
+		active := true
+		var reasons []string
+		if len(w.Only) > 0 {
+			match := false
+			for _, p := range w.Only {
+				if p == plat {
+					match = true
+					break
+				}
+			}
+			if !match {
+				active = false
+				reasons = append(reasons, fmt.Sprintf("platform %s not in %v", plat, w.Only))
+			}
+		}
+		if w.IfTool != "" {
+			if _, err := exec.LookPath(w.IfTool); err != nil {
+				active = false
+				reasons = append(reasons, fmt.Sprintf("tool %s not found", w.IfTool))
+			}
+		}
+		icon := "✓"
+		if !active {
+			icon = "✗"
+		}
+		line := fmt.Sprintf("  %s  %s=%s", icon, w.Key, w.Value)
+		if len(reasons) > 0 {
+			line += "  (" + strings.Join(reasons, "; ") + ")"
+		}
+		fmt.Println(line)
+	}
+	return nil
 }
 
 // ── presets ──────────────────────────────────────────────────────────────────
@@ -807,20 +1247,36 @@ func newPresetsCmd() *cobra.Command {
 		Use:   "show <preset>",
 		Short: "Print preset output",
 		Args:  cobra.ExactArgs(1),
-		RunE:  func(cmd *cobra.Command, args []string) error { return todo("presets show") },
+		RunE: func(cmd *cobra.Command, args []string) error {
+			content, err := presets.Generate(args[0], globals.cfg)
+			if err != nil {
+				return err
+			}
+			fmt.Print(content)
+			return nil
+		},
 	}
 
+	var ejectDest string
 	eject := &cobra.Command{
 		Use:   "eject <preset>",
 		Short: "Eject preset to plain files",
 		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			name := args[0]
+			dest := ejectDest
+			if dest == "" {
+				dest = fileutil.Expand(fmt.Sprintf("~/.config/dots/ejected/%s", name))
+			}
+			if err := presets.Eject(name, dest, globals.cfg); err != nil {
+				return err
+			}
+			fmt.Printf("✓ Ejected %s → %s\n", name, dest)
+			fmt.Println("  Remove the preset flag from dots.toml to stop managing it.")
+			return nil
+		},
 	}
-	var dest string
-	eject.Flags().StringVar(&dest, "dest", "", "output directory")
-	eject.RunE = func(cmd *cobra.Command, args []string) error {
-		_ = dest
-		return todo("presets eject")
-	}
+	eject.Flags().StringVar(&ejectDest, "dest", "", "output path (default: ~/.config/dots/ejected/<preset>)")
 
 	cmd.AddCommand(show, eject)
 	return cmd

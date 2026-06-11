@@ -5,6 +5,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/pkuehne/dots/internal/config"
+	"github.com/pkuehne/dots/internal/shell"
 )
 
 // ── init ──────────────────────────────────────────────────────────────────────
@@ -177,5 +180,213 @@ func TestRunMigrate_Write(t *testing.T) {
 	tomlData, _ := os.ReadFile(filepath.Join(repoRoot, "dots.toml"))
 	if !strings.Contains(string(tomlData), "[[file]]") {
 		t.Error("expected [[file]] entry in dots.toml")
+	}
+}
+
+// ── apply orchestration ───────────────────────────────────────────────────────
+
+// makeShellCfg returns a minimal Config with shell.managed=true pointing at
+// temp dirs so tests do not touch the real ~/.zshrc or shell.d.
+func makeShellCfg(t *testing.T) config.Config {
+	t.Helper()
+	home := t.TempDir()
+	zshrc := filepath.Join(home, ".zshrc")
+	bashrc := filepath.Join(home, ".bashrc")
+	shellDir := filepath.Join(home, ".config", "dots", "shell.d")
+	if err := os.WriteFile(zshrc, []byte("# zshrc\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(bashrc, []byte("# bashrc\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return config.Config{
+		Shell: config.ShellConfig{
+			Managed: true,
+			Zshrc:   zshrc,
+			Bashrc:  bashrc,
+			Dir:     shellDir,
+		},
+	}
+}
+
+func TestApplyShell_WritesSnippetsAndBootstrapper(t *testing.T) {
+	cfg := makeShellCfg(t)
+
+	if err := applyShell(cfg, false); err != nil {
+		t.Fatalf("applyShell: %v", err)
+	}
+
+	shellDir := cfg.Shell.Dir
+	if _, err := os.Stat(filepath.Join(shellDir, "010-env.sh")); err != nil {
+		t.Error("010-env.sh not written")
+	}
+	if _, err := os.Stat(filepath.Join(shellDir, "020-path.sh")); err != nil {
+		t.Error("020-path.sh not written")
+	}
+
+	zshData, _ := os.ReadFile(cfg.Shell.Zshrc)
+	if !strings.Contains(string(zshData), shell.MarkerStart) {
+		t.Error("bootstrapper marker not inserted into zshrc")
+	}
+}
+
+func TestApplyShell_DryRunNoWrites(t *testing.T) {
+	cfg := makeShellCfg(t)
+
+	if err := applyShell(cfg, true); err != nil {
+		t.Fatalf("applyShell --dry-run: %v", err)
+	}
+
+	if _, err := os.Stat(cfg.Shell.Dir); err == nil {
+		t.Error("shell.d directory should not exist in dry-run")
+	}
+	zshData, _ := os.ReadFile(cfg.Shell.Zshrc)
+	if strings.Contains(string(zshData), shell.MarkerStart) {
+		t.Error("bootstrapper should not be inserted in dry-run")
+	}
+}
+
+func TestApplyShell_Idempotent(t *testing.T) {
+	cfg := makeShellCfg(t)
+
+	if err := applyShell(cfg, false); err != nil {
+		t.Fatalf("first applyShell: %v", err)
+	}
+	if err := applyShell(cfg, false); err != nil {
+		t.Fatalf("second applyShell: %v", err)
+	}
+
+	zshData, _ := os.ReadFile(cfg.Shell.Zshrc)
+	count := strings.Count(string(zshData), shell.MarkerStart)
+	if count != 1 {
+		t.Errorf("bootstrapper inserted %d times, want 1", count)
+	}
+}
+
+func TestApplyShell_SkipsWhenNotManaged(t *testing.T) {
+	cfg := makeShellCfg(t)
+	cfg.Shell.Managed = false
+
+	if err := applyShell(cfg, false); err != nil {
+		t.Fatalf("applyShell: %v", err)
+	}
+
+	if _, err := os.Stat(cfg.Shell.Dir); err == nil {
+		t.Error("shell.d should not be created when shell.managed=false")
+	}
+}
+
+func TestApplyPresets_FzfWritesToShellD(t *testing.T) {
+	cfg := makeShellCfg(t)
+	cfg.Presets.Fzf = true
+
+	if err := applyPresets(cfg, false); err != nil {
+		t.Fatalf("applyPresets: %v", err)
+	}
+
+	fzfSnippet := filepath.Join(cfg.Shell.Dir, "030-fzf.sh")
+	data, err := os.ReadFile(fzfSnippet)
+	if err != nil {
+		t.Fatalf("030-fzf.sh not written: %v", err)
+	}
+	if !strings.Contains(string(data), "fzf") {
+		t.Error("030-fzf.sh does not look like an fzf snippet")
+	}
+}
+
+func TestApplyPresets_TmuxWritesConfig(t *testing.T) {
+	home := t.TempDir()
+	tmuxConf := filepath.Join(home, ".tmux.conf")
+
+	origExpand := os.Getenv("HOME")
+	os.Setenv("HOME", home)
+	t.Cleanup(func() { os.Setenv("HOME", origExpand) })
+
+	cfg := config.Config{}
+	cfg.Presets.Tmux = true
+
+	if err := applyPresets(cfg, false); err != nil {
+		t.Fatalf("applyPresets: %v", err)
+	}
+
+	data, err := os.ReadFile(tmuxConf)
+	if err != nil {
+		t.Fatalf("~/.tmux.conf not written: %v", err)
+	}
+	if len(data) == 0 {
+		t.Error("~/.tmux.conf is empty")
+	}
+}
+
+func TestApplyPresets_DryRunNoWrites(t *testing.T) {
+	cfg := makeShellCfg(t)
+	cfg.Presets.Fzf = true
+
+	if err := applyPresets(cfg, true); err != nil {
+		t.Fatalf("applyPresets --dry-run: %v", err)
+	}
+
+	if _, err := os.Stat(filepath.Join(cfg.Shell.Dir, "030-fzf.sh")); err == nil {
+		t.Error("030-fzf.sh should not exist in dry-run")
+	}
+}
+
+func TestRunApply_FilesOnly_SkipsSubsystems(t *testing.T) {
+	repoRoot := makeTestRepo(t)
+	cfg := makeShellCfg(t)
+	cfg.RepoRoot = repoRoot
+	// Shell is managed but apply is called with file args — subsystems should be skipped.
+	// Verify bootstrapper is NOT inserted since filesOnly=true.
+	if err := runApply(cfg, []string{"nonexistent.txt"}, false, false); err != nil {
+		t.Fatalf("runApply filesOnly: %v", err)
+	}
+	zshData, _ := os.ReadFile(cfg.Shell.Zshrc)
+	if strings.Contains(string(zshData), shell.MarkerStart) {
+		t.Error("bootstrapper should not be inserted when apply is called with file args")
+	}
+}
+
+func TestRunApply_NoFiles_RunsShell(t *testing.T) {
+	repoRoot := makeTestRepo(t)
+	cfg := makeShellCfg(t)
+	cfg.RepoRoot = repoRoot
+
+	if err := runApply(cfg, nil, false, false); err != nil {
+		t.Fatalf("runApply: %v", err)
+	}
+
+	zshData, _ := os.ReadFile(cfg.Shell.Zshrc)
+	if !strings.Contains(string(zshData), shell.MarkerStart) {
+		t.Error("bootstrapper should be inserted when apply runs with no file args")
+	}
+}
+
+// ── runStatus / runList / runDiff ─────────────────────────────────────────────
+
+func TestRunList_EmptyRepo(t *testing.T) {
+	repoRoot := makeTestRepo(t)
+	cfg := config.Config{RepoRoot: repoRoot}
+
+	// No files discovered — should run without error.
+	if err := runList(cfg, false); err != nil {
+		t.Fatalf("runList: %v", err)
+	}
+}
+
+func TestRunStatus_EmptyRepo(t *testing.T) {
+	repoRoot := makeTestRepo(t)
+	cfg := config.Config{RepoRoot: repoRoot}
+
+	if err := runStatus(cfg); err != nil {
+		t.Fatalf("runStatus: %v", err)
+	}
+}
+
+func TestRunDiff_NoFiles(t *testing.T) {
+	repoRoot := makeTestRepo(t)
+	cfg := config.Config{RepoRoot: repoRoot}
+
+	if err := runDiff(cfg, ""); err != nil {
+		t.Fatalf("runDiff: %v", err)
 	}
 }
