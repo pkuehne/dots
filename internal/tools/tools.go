@@ -44,18 +44,24 @@ type InstallOptions struct {
 
 // ── Public API ────────────────────────────────────────────────────────────────
 
-// Filter returns the subset of tools matching any of the given names or the
-// given tag. If both are empty, all tools are returned.
-func Filter(tools []config.Tool, names []string, tag string) []config.Tool {
-	if len(names) == 0 && tag == "" {
-		return tools
-	}
+// Filter returns the subset of tools active on the given platform tags that
+// match any of the given names or the given tag. A tool with a non-empty Only
+// is active only when Only intersects platforms. If names and tag are both
+// empty, all platform-active tools are returned.
+func Filter(tools []config.Tool, names []string, tag string, platforms []string) []config.Tool {
 	nameSet := make(map[string]bool, len(names))
 	for _, n := range names {
 		nameSet[n] = true
 	}
 	var out []config.Tool
 	for _, t := range tools {
+		if len(t.Only) > 0 && !intersects(t.Only, platforms) {
+			continue
+		}
+		if len(names) == 0 && tag == "" {
+			out = append(out, t)
+			continue
+		}
 		if nameSet[t.Name] {
 			out = append(out, t)
 			continue
@@ -72,9 +78,21 @@ func Filter(tools []config.Tool, names []string, tag string) []config.Tool {
 	return out
 }
 
+// intersects reports whether any element of only is present in platforms.
+func intersects(only, platforms []string) bool {
+	for _, o := range only {
+		for _, p := range platforms {
+			if o == p {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // Check returns whether each tool is currently installed by running its check
 // command (or falling back to exec.LookPath when check is empty).
-func Check(tools []config.Tool, plat, arch string) []CheckResult {
+func Check(tools []config.Tool) []CheckResult {
 	results := make([]CheckResult, len(tools))
 	for i, t := range tools {
 		results[i] = CheckResult{Tool: t}

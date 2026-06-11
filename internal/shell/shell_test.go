@@ -505,6 +505,66 @@ func TestCleanToolSnippetNaming(t *testing.T) {
 	}
 }
 
+func TestToolSnippetFilesPlatformScoping(t *testing.T) {
+	tool := config.Tool{
+		Name:  "mac-thing",
+		Only:  []string{"darwin"},
+		Shell: config.ToolShell{Init: "eval mac-thing"},
+	}
+	if got := toolSnippetFiles(tool, []string{"linux", "wsl"}); got != nil {
+		t.Errorf("darwin-only tool must yield no snippets on linux+wsl, got: %v", got)
+	}
+	if got := toolSnippetFiles(tool, []string{"darwin"}); len(got) != 1 {
+		t.Errorf("darwin-only tool should yield one snippet on darwin, got: %v", got)
+	}
+}
+
+func TestWriteSnippetsSkipsPlatformExcludedTool(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	dir := t.TempDir()
+	cfg := config.Config{
+		Shell: config.ShellConfig{Dir: dir},
+		Env:   config.EnvConfig{Vars: map[string]string{}},
+		Tools: []config.Tool{{
+			Name: "elsewhere",
+			// A tag that is never an active platform, so the test is
+			// deterministic regardless of the machine it runs on.
+			Only:  []string{"some-other-os"},
+			Shell: config.ToolShell{Init: "eval elsewhere"},
+		}},
+		ToolsConfig: config.ToolsConfig{BinDir: "~/.local/bin"},
+	}
+
+	if err := WriteSnippets(cfg, false); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "050-elsewhere.sh")); !os.IsNotExist(err) {
+		t.Error("platform-excluded tool must not get a snippet")
+	}
+}
+
+func TestCleanRemovesSnippetOfPlatformExcludedTool(t *testing.T) {
+	dir := t.TempDir()
+	stale := filepath.Join(dir, "050-elsewhere.sh")
+	_ = os.WriteFile(stale, []byte("# stale"), 0o644)
+
+	cfg := config.Config{
+		Shell:    config.ShellConfig{Dir: dir},
+		RepoRoot: t.TempDir(),
+		Tools: []config.Tool{{
+			Name:  "elsewhere",
+			Only:  []string{"some-other-os"},
+			Shell: config.ToolShell{Init: "eval elsewhere"},
+		}},
+	}
+	if err := Clean(cfg, false); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(stale); !os.IsNotExist(err) {
+		t.Error("snippet of a platform-excluded tool should be removed")
+	}
+}
+
 func TestCleanRemovesSnippetOfShellLessTool(t *testing.T) {
 	dir := t.TempDir()
 	stale := filepath.Join(dir, "050-jq.sh")

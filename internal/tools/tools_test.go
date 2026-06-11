@@ -20,7 +20,7 @@ import (
 
 func TestFilter_EmptyReturnsAll(t *testing.T) {
 	tools := []config.Tool{{Name: "rg"}, {Name: "bat"}}
-	got := Filter(tools, nil, "")
+	got := Filter(tools, nil, "", []string{"linux"})
 	if len(got) != 2 {
 		t.Errorf("Filter() = %d tools, want 2", len(got))
 	}
@@ -28,7 +28,7 @@ func TestFilter_EmptyReturnsAll(t *testing.T) {
 
 func TestFilter_ByName(t *testing.T) {
 	tools := []config.Tool{{Name: "rg"}, {Name: "bat"}, {Name: "fzf"}}
-	got := Filter(tools, []string{"rg", "fzf"}, "")
+	got := Filter(tools, []string{"rg", "fzf"}, "", []string{"linux"})
 	if len(got) != 2 {
 		t.Fatalf("got %d tools, want 2", len(got))
 	}
@@ -43,7 +43,7 @@ func TestFilter_ByTag(t *testing.T) {
 		{Name: "bat", Tags: []string{"core"}},
 		{Name: "fzf", Tags: []string{"ui"}},
 	}
-	got := Filter(tools, nil, "core")
+	got := Filter(tools, nil, "core", []string{"linux"})
 	if len(got) != 2 {
 		t.Fatalf("got %d tools, want 2", len(got))
 	}
@@ -55,9 +55,41 @@ func TestFilter_NameTakesPrecedenceOverTag(t *testing.T) {
 		{Name: "bat", Tags: []string{"core"}},
 	}
 	// Filter by name "rg" — bat should not be included even if tag matches nothing.
-	got := Filter(tools, []string{"rg"}, "")
+	got := Filter(tools, []string{"rg"}, "", []string{"linux"})
 	if len(got) != 1 || got[0].Name != "rg" {
 		t.Errorf("unexpected result: %v", got)
+	}
+}
+
+func TestFilter_PlatformOnly(t *testing.T) {
+	tools := []config.Tool{
+		{Name: "everywhere"},
+		{Name: "mac-only", Only: []string{"darwin"}},
+		{Name: "wsl-only", Only: []string{"wsl"}},
+	}
+
+	got := Filter(tools, nil, "", []string{"linux", "wsl"})
+	if len(got) != 2 || got[0].Name != "everywhere" || got[1].Name != "wsl-only" {
+		t.Errorf("on linux+wsl want [everywhere wsl-only], got: %v", got)
+	}
+
+	got = Filter(tools, nil, "", []string{"darwin"})
+	if len(got) != 2 || got[0].Name != "everywhere" || got[1].Name != "mac-only" {
+		t.Errorf("on darwin want [everywhere mac-only], got: %v", got)
+	}
+}
+
+func TestFilter_PlatformAppliesToNameAndTag(t *testing.T) {
+	tools := []config.Tool{
+		{Name: "mac-only", Only: []string{"darwin"}, Tags: []string{"core"}},
+	}
+	// Even when requested explicitly by name or tag, a platform-excluded tool
+	// stays excluded.
+	if got := Filter(tools, []string{"mac-only"}, "", []string{"linux"}); len(got) != 0 {
+		t.Errorf("by name: want 0 tools on linux, got: %v", got)
+	}
+	if got := Filter(tools, nil, "core", []string{"linux"}); len(got) != 0 {
+		t.Errorf("by tag: want 0 tools on linux, got: %v", got)
 	}
 }
 
@@ -563,7 +595,7 @@ func TestInstallGitHub_BinaryPath(t *testing.T) {
 func TestCheck_InstalledTool(t *testing.T) {
 	// "true" is always available and exits 0.
 	tools := []config.Tool{{Name: "true", Check: "true"}}
-	results := Check(tools, "linux", "amd64")
+	results := Check(tools)
 	if len(results) != 1 || !results[0].Installed {
 		t.Errorf("expected true to be installed, got: %v", results)
 	}
@@ -571,7 +603,7 @@ func TestCheck_InstalledTool(t *testing.T) {
 
 func TestCheck_MissingTool(t *testing.T) {
 	tools := []config.Tool{{Name: "dots-nonexistent-binary-xyz", Check: "dots-nonexistent-binary-xyz --version"}}
-	results := Check(tools, "linux", "amd64")
+	results := Check(tools)
 	if len(results) != 1 || results[0].Installed {
 		t.Errorf("expected missing tool to not be installed, got: %v", results)
 	}
@@ -580,7 +612,7 @@ func TestCheck_MissingTool(t *testing.T) {
 func TestCheck_NoCheckFallsBackToLookPath(t *testing.T) {
 	// "sh" is always on PATH
 	tools := []config.Tool{{Name: "sh"}}
-	results := Check(tools, "linux", "amd64")
+	results := Check(tools)
 	if len(results) != 1 || !results[0].Installed {
 		t.Errorf("expected sh to be found via LookPath, got: %v", results)
 	}

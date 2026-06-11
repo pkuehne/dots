@@ -250,13 +250,17 @@ func deployUserSnippets(cfg config.Config, dir string, dryRun bool) error {
 }
 
 // toolSnippetFiles returns the snippet filename → shell-name pairs to generate
-// for one tool, or nil when the tool has no shell integration. A tool whose
-// init contains the {shell} placeholder gets per-shell variants (.zsh/.bash,
-// each only sourced by the matching bootstrapper); otherwise a single
-// shell-neutral .sh. WriteSnippets and Clean both derive snippet names from
-// this so the two cannot drift apart.
-func toolSnippetFiles(tool config.Tool) map[string]string {
+// for one tool, or nil when the tool has no shell integration or its Only does
+// not intersect the active platform tags. A tool whose init contains the
+// {shell} placeholder gets per-shell variants (.zsh/.bash, each only sourced
+// by the matching bootstrapper); otherwise a single shell-neutral .sh.
+// WriteSnippets and Clean both derive snippet names from this so the two
+// cannot drift apart.
+func toolSnippetFiles(tool config.Tool, platforms []string) map[string]string {
 	if len(tool.Shell.Env) == 0 && tool.Shell.Init == "" {
+		return nil
+	}
+	if len(tool.Only) > 0 && !intersects(tool.Only, platforms) {
 		return nil
 	}
 	if strings.Contains(tool.Shell.Init, "{shell}") {
@@ -289,8 +293,9 @@ func WriteSnippets(cfg config.Config, dryRun bool) error {
 		"010-env.sh":  GenerateEnvSnippet(cfg),
 		"020-path.sh": GeneratePathSnippet(cfg),
 	}
+	plats := platform.Platforms()
 	for _, tool := range cfg.Tools {
-		for name, shellName := range toolSnippetFiles(tool) {
+		for name, shellName := range toolSnippetFiles(tool, plats) {
 			snippets[name] = GenerateToolSnippet(tool, shellName)
 		}
 	}
@@ -372,8 +377,9 @@ func Clean(cfg config.Config, dryRun bool) error {
 	if cfg.Presets.Fzf {
 		expected["030-fzf.sh"] = true
 	}
+	plats := platform.Platforms()
 	for _, tool := range cfg.Tools {
-		for name := range toolSnippetFiles(tool) {
+		for name := range toolSnippetFiles(tool, plats) {
 			expected[name] = true
 		}
 	}
