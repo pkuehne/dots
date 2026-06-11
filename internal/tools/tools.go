@@ -33,7 +33,6 @@ var githubAPIBase = "https://api.github.com"
 type CheckResult struct {
 	Tool      config.Tool
 	Installed bool
-	Version   string
 }
 
 // InstallOptions controls install behaviour.

@@ -2,6 +2,7 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 
@@ -173,6 +174,9 @@ type Config struct {
 	ActiveProfile string
 }
 
+// supportedSchemaVersion is the highest [meta] version this build understands.
+const supportedSchemaVersion = 1
+
 // ── Defaults ─────────────────────────────────────────────────────────────────
 
 // defaults returns a Config with all zero-config defaults applied.
@@ -216,6 +220,13 @@ func Load(repoRoot, profile string) (Config, error) {
 			Version:     int(intVal(m, "version", 1)),
 			DefaultMode: str(m, "default_mode", "symlink"),
 		}
+	}
+	if cfg.Meta.Version > supportedSchemaVersion {
+		return Config{}, errs.NewConfig(
+			fmt.Sprintf("dots.toml uses schema version %d, but this dots supports up to %d",
+				cfg.Meta.Version, supportedSchemaVersion),
+			"Upgrade dots, or lower [meta] version in dots.toml.",
+		)
 	}
 	if v, ok := merged["vars"].(map[string]any); ok {
 		cfg.Vars = v

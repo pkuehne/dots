@@ -34,18 +34,28 @@ func TestLoad_NoToml(t *testing.T) {
 func TestLoad_Meta(t *testing.T) {
 	dir := writeToml(t, `
 [meta]
-version = 2
+version = 1
 default_mode = "copy"
 `)
 	cfg, err := config.Load(dir, "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if cfg.Meta.Version != 2 {
-		t.Errorf("version: got %d, want 2", cfg.Meta.Version)
+	if cfg.Meta.Version != 1 {
+		t.Errorf("version: got %d, want 1", cfg.Meta.Version)
 	}
 	if cfg.Meta.DefaultMode != "copy" {
 		t.Errorf("default_mode: got %q, want %q", cfg.Meta.DefaultMode, "copy")
+	}
+}
+
+func TestLoad_UnsupportedSchemaVersion(t *testing.T) {
+	dir := writeToml(t, `
+[meta]
+version = 2
+`)
+	if _, err := config.Load(dir, ""); err == nil {
+		t.Fatal("expected error for unsupported schema version")
 	}
 }
 

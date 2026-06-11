@@ -1063,7 +1063,11 @@ func newToolsCmd() *cobra.Command {
 				if len(t.Tags) > 0 {
 					tags = " [" + strings.Join(t.Tags, ", ") + "]"
 				}
-				fmt.Printf("  %-20s%s\n", t.Name, tags)
+				desc := ""
+				if t.Desc != "" {
+					desc = "  " + t.Desc
+				}
+				fmt.Printf("  %-20s%s%s\n", t.Name, desc, tags)
 			}
 			return nil
 		},
