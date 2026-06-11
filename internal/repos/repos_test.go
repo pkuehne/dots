@@ -44,7 +44,7 @@ func makeLocalRepo(t *testing.T, bare string) string {
 
 func TestFilter_Empty(t *testing.T) {
 	repos := []config.RepoEntry{{Name: "a"}, {Name: "b"}}
-	got := Filter(repos, nil)
+	got := Filter(repos, nil, []string{"linux"}, "")
 	if len(got) != 2 {
 		t.Fatalf("want 2 repos, got %d", len(got))
 	}
@@ -52,7 +52,7 @@ func TestFilter_Empty(t *testing.T) {
 
 func TestFilter_ByName(t *testing.T) {
 	repos := []config.RepoEntry{{Name: "a"}, {Name: "b"}, {Name: "c"}}
-	got := Filter(repos, []string{"a", "c"})
+	got := Filter(repos, []string{"a", "c"}, []string{"linux"}, "")
 	if len(got) != 2 {
 		t.Fatalf("want 2, got %d", len(got))
 	}
@@ -63,9 +63,44 @@ func TestFilter_ByName(t *testing.T) {
 
 func TestFilter_NoMatch(t *testing.T) {
 	repos := []config.RepoEntry{{Name: "a"}}
-	got := Filter(repos, []string{"z"})
+	got := Filter(repos, []string{"z"}, []string{"linux"}, "")
 	if len(got) != 0 {
 		t.Fatalf("want 0, got %d", len(got))
+	}
+}
+
+func TestFilter_PlatformOnly(t *testing.T) {
+	repos := []config.RepoEntry{
+		{Name: "everywhere"},
+		{Name: "mac-only", Only: []string{"darwin"}},
+	}
+	got := Filter(repos, nil, []string{"linux"}, "")
+	if len(got) != 1 || got[0].Name != "everywhere" {
+		t.Fatalf("on linux want [everywhere], got: %v", got)
+	}
+	got = Filter(repos, nil, []string{"darwin"}, "")
+	if len(got) != 2 {
+		t.Fatalf("on darwin want 2 repos, got: %v", got)
+	}
+	// Even when requested explicitly by name, a platform-excluded repo stays excluded.
+	got = Filter(repos, []string{"mac-only"}, []string{"linux"}, "")
+	if len(got) != 0 {
+		t.Fatalf("by name on linux want 0 repos, got: %v", got)
+	}
+}
+
+func TestFilter_Profile(t *testing.T) {
+	repos := []config.RepoEntry{
+		{Name: "everywhere"},
+		{Name: "work-only", Profile: "work"},
+	}
+	got := Filter(repos, nil, []string{"linux"}, "")
+	if len(got) != 1 || got[0].Name != "everywhere" {
+		t.Fatalf("no profile: want [everywhere], got: %v", got)
+	}
+	got = Filter(repos, nil, []string{"linux"}, "work")
+	if len(got) != 2 {
+		t.Fatalf("work profile: want 2 repos, got: %v", got)
 	}
 }
 

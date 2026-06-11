@@ -275,7 +275,7 @@ func applyTools(cfg config.Config, dryRun bool) error {
 	}
 	plat := platform.Detect()
 	arch := platform.Arch()
-	active := tools.Filter(cfg.Tools, nil, "", platform.Platforms())
+	active := tools.Filter(cfg.Tools, nil, "", platform.Platforms(), cfg.ActiveProfile)
 	results := tools.Check(active)
 	opts := tools.InstallOptions{DryRun: dryRun}
 	installErrors := 0
@@ -981,7 +981,7 @@ func newToolsCmd() *cobra.Command {
 		Use:   "check [names...]",
 		Short: "Check which configured tools are installed",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			filtered := tools.Filter(globals.cfg.Tools, args, checkTag, platform.Platforms())
+			filtered := tools.Filter(globals.cfg.Tools, args, checkTag, platform.Platforms(), globals.cfg.ActiveProfile)
 			if len(filtered) == 0 {
 				fmt.Println("  No tools configured.")
 				return nil
@@ -1010,7 +1010,7 @@ func newToolsCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			plat := platform.Detect()
 			arch := platform.Arch()
-			filtered := tools.Filter(globals.cfg.Tools, args, installTag, platform.Platforms())
+			filtered := tools.Filter(globals.cfg.Tools, args, installTag, platform.Platforms(), globals.cfg.ActiveProfile)
 			if !installForce {
 				results := tools.Check(filtered)
 				var missing []config.Tool
@@ -1053,7 +1053,7 @@ func newToolsCmd() *cobra.Command {
 		Use:   "list",
 		Short: "List configured tools",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			filtered := tools.Filter(globals.cfg.Tools, args, listTag, platform.Platforms())
+			filtered := tools.Filter(globals.cfg.Tools, args, listTag, platform.Platforms(), globals.cfg.ActiveProfile)
 			if len(filtered) == 0 {
 				fmt.Println("  No tools configured.")
 				return nil

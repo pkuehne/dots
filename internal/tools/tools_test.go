@@ -20,7 +20,7 @@ import (
 
 func TestFilter_EmptyReturnsAll(t *testing.T) {
 	tools := []config.Tool{{Name: "rg"}, {Name: "bat"}}
-	got := Filter(tools, nil, "", []string{"linux"})
+	got := Filter(tools, nil, "", []string{"linux"}, "")
 	if len(got) != 2 {
 		t.Errorf("Filter() = %d tools, want 2", len(got))
 	}
@@ -28,7 +28,7 @@ func TestFilter_EmptyReturnsAll(t *testing.T) {
 
 func TestFilter_ByName(t *testing.T) {
 	tools := []config.Tool{{Name: "rg"}, {Name: "bat"}, {Name: "fzf"}}
-	got := Filter(tools, []string{"rg", "fzf"}, "", []string{"linux"})
+	got := Filter(tools, []string{"rg", "fzf"}, "", []string{"linux"}, "")
 	if len(got) != 2 {
 		t.Fatalf("got %d tools, want 2", len(got))
 	}
@@ -43,7 +43,7 @@ func TestFilter_ByTag(t *testing.T) {
 		{Name: "bat", Tags: []string{"core"}},
 		{Name: "fzf", Tags: []string{"ui"}},
 	}
-	got := Filter(tools, nil, "core", []string{"linux"})
+	got := Filter(tools, nil, "core", []string{"linux"}, "")
 	if len(got) != 2 {
 		t.Fatalf("got %d tools, want 2", len(got))
 	}
@@ -55,7 +55,7 @@ func TestFilter_NameTakesPrecedenceOverTag(t *testing.T) {
 		{Name: "bat", Tags: []string{"core"}},
 	}
 	// Filter by name "rg" — bat should not be included even if tag matches nothing.
-	got := Filter(tools, []string{"rg"}, "", []string{"linux"})
+	got := Filter(tools, []string{"rg"}, "", []string{"linux"}, "")
 	if len(got) != 1 || got[0].Name != "rg" {
 		t.Errorf("unexpected result: %v", got)
 	}
@@ -68,12 +68,12 @@ func TestFilter_PlatformOnly(t *testing.T) {
 		{Name: "wsl-only", Only: []string{"wsl"}},
 	}
 
-	got := Filter(tools, nil, "", []string{"linux", "wsl"})
+	got := Filter(tools, nil, "", []string{"linux", "wsl"}, "")
 	if len(got) != 2 || got[0].Name != "everywhere" || got[1].Name != "wsl-only" {
 		t.Errorf("on linux+wsl want [everywhere wsl-only], got: %v", got)
 	}
 
-	got = Filter(tools, nil, "", []string{"darwin"})
+	got = Filter(tools, nil, "", []string{"darwin"}, "")
 	if len(got) != 2 || got[0].Name != "everywhere" || got[1].Name != "mac-only" {
 		t.Errorf("on darwin want [everywhere mac-only], got: %v", got)
 	}
@@ -85,11 +85,26 @@ func TestFilter_PlatformAppliesToNameAndTag(t *testing.T) {
 	}
 	// Even when requested explicitly by name or tag, a platform-excluded tool
 	// stays excluded.
-	if got := Filter(tools, []string{"mac-only"}, "", []string{"linux"}); len(got) != 0 {
+	if got := Filter(tools, []string{"mac-only"}, "", []string{"linux"}, ""); len(got) != 0 {
 		t.Errorf("by name: want 0 tools on linux, got: %v", got)
 	}
-	if got := Filter(tools, nil, "core", []string{"linux"}); len(got) != 0 {
+	if got := Filter(tools, nil, "core", []string{"linux"}, ""); len(got) != 0 {
 		t.Errorf("by tag: want 0 tools on linux, got: %v", got)
+	}
+}
+
+func TestFilter_Profile(t *testing.T) {
+	tools := []config.Tool{
+		{Name: "everywhere"},
+		{Name: "work-only", Profile: "work"},
+	}
+	got := Filter(tools, nil, "", []string{"linux"}, "")
+	if len(got) != 1 || got[0].Name != "everywhere" {
+		t.Errorf("no profile: want [everywhere], got: %v", got)
+	}
+	got = Filter(tools, nil, "", []string{"linux"}, "work")
+	if len(got) != 2 {
+		t.Errorf("work profile: want 2 tools, got: %v", got)
 	}
 }
 

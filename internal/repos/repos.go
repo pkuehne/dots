@@ -11,6 +11,7 @@ import (
 	"github.com/pkuehne/dots/internal/config"
 	"github.com/pkuehne/dots/internal/errs"
 	"github.com/pkuehne/dots/internal/fileutil"
+	"github.com/pkuehne/dots/internal/platform"
 )
 
 // RepoState is the current state of a managed repo clone.
@@ -25,7 +26,7 @@ type RepoState struct {
 // Clone clones any repos that are not yet present on disk.
 // If names is non-empty, only those repos are cloned.
 func Clone(cfg config.Config, names []string, dryRun bool) error {
-	for _, r := range Filter(cfg.Repos, names) {
+	for _, r := range active(cfg, names) {
 		if _, err := cloneOne(r, dryRun); err != nil {
 			return err
 		}
@@ -35,7 +36,7 @@ func Clone(cfg config.Config, names []string, dryRun bool) error {
 
 // Update fetches and pulls repos that already exist.
 func Update(cfg config.Config, names []string, dryRun bool) error {
-	for _, r := range Filter(cfg.Repos, names) {
+	for _, r := range active(cfg, names) {
 		if _, err := updateOne(r, dryRun); err != nil {
 			return err
 		}
@@ -43,10 +44,11 @@ func Update(cfg config.Config, names []string, dryRun bool) error {
 	return nil
 }
 
-// Status returns the state of all managed repo clones.
+// Status returns the state of all active repo clones.
 func Status(cfg config.Config) ([]RepoState, error) {
-	states := make([]RepoState, 0, len(cfg.Repos))
-	for _, r := range cfg.Repos {
+	repos := active(cfg, nil)
+	states := make([]RepoState, 0, len(repos))
+	for _, r := range repos {
 		s, err := repoState(r)
 		if err != nil {
 			return nil, err
@@ -56,22 +58,48 @@ func Status(cfg config.Config) ([]RepoState, error) {
 	return states, nil
 }
 
-// Filter returns the subset of repos matching names. If names is empty, all repos are returned.
-func Filter(repos []config.RepoEntry, names []string) []config.RepoEntry {
-	if len(names) == 0 {
-		return repos
-	}
+// active returns the repos from cfg matching names that are in scope for the
+// current platform tags and active profile.
+func active(cfg config.Config, names []string) []config.RepoEntry {
+	return Filter(cfg.Repos, names, platform.Platforms(), cfg.ActiveProfile)
+}
+
+// Filter returns the subset of repos matching names that are active on the
+// given platform tags and profile. A repo with a non-empty Only is active
+// only when Only intersects platforms; a repo with a non-empty Profile is
+// active only when it equals profile. If names is empty, all active repos
+// are returned.
+func Filter(repos []config.RepoEntry, names []string, platforms []string, profile string) []config.RepoEntry {
 	set := make(map[string]bool, len(names))
 	for _, n := range names {
 		set[n] = true
 	}
 	var out []config.RepoEntry
 	for _, r := range repos {
-		if set[r.Name] {
-			out = append(out, r)
+		if len(r.Only) > 0 && !intersects(r.Only, platforms) {
+			continue
 		}
+		if r.Profile != "" && r.Profile != profile {
+			continue
+		}
+		if len(names) > 0 && !set[r.Name] {
+			continue
+		}
+		out = append(out, r)
 	}
 	return out
+}
+
+// intersects reports whether any element of only is present in platforms.
+func intersects(only, platforms []string) bool {
+	for _, o := range only {
+		for _, p := range platforms {
+			if o == p {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // cloneOne clones a single repo. Returns "ok", "already", or an error.

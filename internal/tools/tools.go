@@ -44,11 +44,12 @@ type InstallOptions struct {
 
 // ── Public API ────────────────────────────────────────────────────────────────
 
-// Filter returns the subset of tools active on the given platform tags that
-// match any of the given names or the given tag. A tool with a non-empty Only
-// is active only when Only intersects platforms. If names and tag are both
-// empty, all platform-active tools are returned.
-func Filter(tools []config.Tool, names []string, tag string, platforms []string) []config.Tool {
+// Filter returns the subset of tools active on the given platform tags and
+// profile that match any of the given names or the given tag. A tool with a
+// non-empty Only is active only when Only intersects platforms; a tool with a
+// non-empty Profile is active only when it equals profile. If names and tag
+// are both empty, all active tools are returned.
+func Filter(tools []config.Tool, names []string, tag string, platforms []string, profile string) []config.Tool {
 	nameSet := make(map[string]bool, len(names))
 	for _, n := range names {
 		nameSet[n] = true
@@ -56,6 +57,9 @@ func Filter(tools []config.Tool, names []string, tag string, platforms []string)
 	var out []config.Tool
 	for _, t := range tools {
 		if len(t.Only) > 0 && !intersects(t.Only, platforms) {
+			continue
+		}
+		if t.Profile != "" && t.Profile != profile {
 			continue
 		}
 		if len(names) == 0 && tag == "" {
