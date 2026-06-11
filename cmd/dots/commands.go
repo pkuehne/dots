@@ -589,13 +589,6 @@ func runAdd(path, dest string) error {
 		repoDest = filepath.Join(repoRoot, "files", filepath.Base(src))
 	}
 
-	if err := os.MkdirAll(filepath.Dir(repoDest), 0o755); err != nil {
-		return err
-	}
-	if err := fileutil.CopyFile(src, repoDest); err != nil {
-		return err
-	}
-
 	relSrc, err := filepath.Rel(repoRoot, repoDest)
 	if err != nil {
 		return err
@@ -605,6 +598,27 @@ func runAdd(path, dest string) error {
 	dstStr := src
 	if strings.HasPrefix(dstStr, home) {
 		dstStr = "~" + dstStr[len(home):]
+	}
+
+	// Idempotency (invariant 3): if this file is already managed — an existing
+	// [[file]] entry shares its src or dst, or the repo destination already
+	// exists — do nothing rather than appending a duplicate entry.
+	for _, e := range globals.cfg.Files {
+		if e.Src == relSrc || e.Dst == dstStr {
+			fmt.Printf("  already managed: %s\n", relSrc)
+			return nil
+		}
+	}
+	if _, err := os.Stat(repoDest); err == nil {
+		fmt.Printf("  already managed: %s\n", relSrc)
+		return nil
+	}
+
+	if err := os.MkdirAll(filepath.Dir(repoDest), 0o755); err != nil {
+		return err
+	}
+	if err := fileutil.CopyFile(src, repoDest); err != nil {
+		return err
 	}
 
 	tomlPath := filepath.Join(repoRoot, "dots.toml")
@@ -671,17 +685,18 @@ func runDoctor() int {
 		}
 	}
 
-	// age binary (if .age files or secrets.recipient configured)
-	ageFiles, _ := filepath.Glob(filepath.Join(cfg.RepoRoot, "**/*.age"))
-	if len(ageFiles) == 0 {
-		// filepath.Glob doesn't recurse; use filepath.WalkDir instead
-		_ = filepath.WalkDir(cfg.RepoRoot, func(p string, d os.DirEntry, _ error) error {
-			if strings.HasSuffix(p, ".age") {
-				ageFiles = append(ageFiles, p)
-			}
-			return nil
-		})
-	}
+	// age binary (if .age files or secrets.recipient configured).
+	// filepath.Glob does not recurse, so walk the tree (skipping .git).
+	var ageFiles []string
+	_ = filepath.WalkDir(cfg.RepoRoot, func(p string, d os.DirEntry, _ error) error {
+		if d != nil && d.IsDir() && d.Name() == ".git" {
+			return filepath.SkipDir
+		}
+		if strings.HasSuffix(p, ".age") {
+			ageFiles = append(ageFiles, p)
+		}
+		return nil
+	})
 	if len(ageFiles) > 0 || cfg.Secrets.Recipient != "" {
 		if _, err := exec.LookPath("age"); err == nil {
 			ok("age available (secrets configured)")
@@ -773,8 +788,9 @@ func runDoctor() int {
 		return 1
 	}
 	if warnings > 0 {
+		// doctor is advisory: warnings alone do not fail the command.
 		fmt.Printf("%d warning(s)\n", warnings)
-		return 1
+		return 0
 	}
 	fmt.Println("All checks passed")
 	return 0
@@ -1360,10 +1376,9 @@ To load completions in your current shell session:
 To install completions permanently, see your shell's documentation for
 the appropriate completions directory (e.g. /etc/bash_completion.d/ or
 ~/.zsh/completions/).`,
-		Annotations:       map[string]string{"skipConfig": "true"},
-		ValidArgs:         []string{"bash", "zsh", "fish", "powershell"},
-		Args:              cobra.ExactArgs(1),
-		DisableFlagParsing: false,
+		Annotations: map[string]string{"skipConfig": "true"},
+		ValidArgs:   []string{"bash", "zsh", "fish", "powershell"},
+		Args:        cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			root := cmd.Root()
 			switch args[0] {
@@ -1376,10 +1391,8 @@ the appropriate completions directory (e.g. /etc/bash_completion.d/ or
 			case "powershell":
 				return root.GenPowerShellCompletionWithDesc(os.Stdout)
 			default:
-				return &errs.DotsError{
-					Msg:  "unknown shell: " + args[0],
-					Hint: "Valid shells: bash, zsh, fish, powershell",
-				}
+				return errs.New("unknown shell: "+args[0],
+					"Valid shells: bash, zsh, fish, powershell")
 			}
 		},
 	}

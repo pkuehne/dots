@@ -105,6 +105,31 @@ func TestRunAdd_AdoptsFile(t *testing.T) {
 	}
 }
 
+func TestRunAdd_Idempotent(t *testing.T) {
+	repoRoot := makeTestRepo(t)
+	srcFile := filepath.Join(t.TempDir(), "myfile.conf")
+	if err := os.WriteFile(srcFile, []byte("content"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	orig := globals.cfg
+	globals.cfg.RepoRoot = repoRoot
+	t.Cleanup(func() { globals.cfg = orig })
+
+	if err := runAdd(srcFile, ""); err != nil {
+		t.Fatalf("first runAdd: %v", err)
+	}
+	// Second add must not append a duplicate [[file]] block (invariant 3).
+	if err := runAdd(srcFile, ""); err != nil {
+		t.Fatalf("second runAdd: %v", err)
+	}
+
+	tomlData, _ := os.ReadFile(filepath.Join(repoRoot, "dots.toml"))
+	if n := strings.Count(string(tomlData), "[[file]]"); n != 1 {
+		t.Errorf("[[file]] entry written %d times, want 1", n)
+	}
+}
+
 func TestRunAdd_MissingFile(t *testing.T) {
 	repoRoot := makeTestRepo(t)
 	orig := globals.cfg
