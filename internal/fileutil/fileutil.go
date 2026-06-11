@@ -128,6 +128,9 @@ func SHA256File(path string) (string, error) {
 	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
+// CopyFile copies src to dst, preserving permissions.
+func CopyFile(src, dst string) error { return copyFile(src, dst) }
+
 func copyFile(src, dst string) error {
 	in, err := os.Open(src)
 	if err != nil {

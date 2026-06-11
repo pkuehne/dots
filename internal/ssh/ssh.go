@@ -55,7 +55,11 @@ func SnakeToSSHKeyword(key string) string {
 	return strings.Join(parts, "")
 }
 
-const sshIncludeLine = "Include ~/.config/dots/ssh/config"
+// IncludeLine is the Include directive prepended to ~/.ssh/config.
+const IncludeLine = "Include ~/.config/dots/ssh/config"
+
+// sshIncludeLine is an internal alias kept for the helper functions below.
+const sshIncludeLine = IncludeLine
 
 // GenerateConfig returns the SSH config block for all active hosts.
 func GenerateConfig(cfg config.Config, platform string) string {
