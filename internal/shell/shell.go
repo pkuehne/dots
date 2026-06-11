@@ -44,10 +44,10 @@ var bashBootstrapper = MarkerStart + "\n" +
 
 // GenerateEnvSnippet returns the content of 010-env.sh derived from cfg.Env.
 func GenerateEnvSnippet(cfg config.Config) string {
-	return generateEnvSnippet(cfg, platform.Detect())
+	return generateEnvSnippet(cfg, platform.Platforms())
 }
 
-func generateEnvSnippet(cfg config.Config, plat string) string {
+func generateEnvSnippet(cfg config.Config, plats []string) string {
 	lines := []string{
 		GeneratedHeader,
 		"# Source: [env] + [[env.when]]",
@@ -65,7 +65,7 @@ func generateEnvSnippet(cfg config.Config, plat string) string {
 	}
 
 	for _, ew := range cfg.Env.When {
-		if len(ew.Only) > 0 && !sliceContains(ew.Only, plat) {
+		if len(ew.Only) > 0 && !intersects(ew.Only, plats) {
 			continue
 		}
 		if ew.IfTool != "" {
@@ -392,6 +392,16 @@ func isSnippetFile(name string) bool {
 func sliceContains(slice []string, s string) bool {
 	for _, v := range slice {
 		if v == s {
+			return true
+		}
+	}
+	return false
+}
+
+// intersects reports whether any element of a is present in b.
+func intersects(a, b []string) bool {
+	for _, x := range a {
+		if sliceContains(b, x) {
 			return true
 		}
 	}

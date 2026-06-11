@@ -12,17 +12,17 @@ import (
 	"github.com/pkuehne/dots/internal/config"
 	"github.com/pkuehne/dots/internal/errs"
 	"github.com/pkuehne/dots/internal/fileutil"
-	"github.com/pkuehne/dots/internal/platform"
 )
 
 // Options controls deploy behaviour.
 type Options struct {
 	DryRun        bool
-	ForceCopy     bool   // treat every entry as copy regardless of config
+	ForceCopy     bool // treat every entry as copy regardless of config
 	RepoRoot      string
 	DefaultMode   string // "symlink" (default) or "copy"
 	ActiveProfile string
-	HomeDir       string // override os.UserHomeDir(); used in tests
+	Platforms     []string // active platform tags (platform.Platforms())
+	HomeDir       string   // override os.UserHomeDir(); used in tests
 }
 
 // Result describes what happened when a single file was deployed.
@@ -45,7 +45,7 @@ func Apply(entry config.FileEntry, opts Options) Result {
 	}
 
 	// Platform filter.
-	if len(entry.Only) > 0 && !containsPlatform(entry.Only, currentPlatform(opts.RepoRoot)) {
+	if len(entry.Only) > 0 && !intersects(entry.Only, opts.Platforms) {
 		return Result{Entry: entry, Action: "skipped"}
 	}
 
@@ -130,7 +130,7 @@ func Status(entry config.FileEntry, opts Options) Result {
 	if entry.Profile != "" && entry.Profile != opts.ActiveProfile {
 		return Result{Entry: entry, Action: "skipped"}
 	}
-	if len(entry.Only) > 0 && !containsPlatform(entry.Only, currentPlatform(opts.RepoRoot)) {
+	if len(entry.Only) > 0 && !intersects(entry.Only, opts.Platforms) {
 		return Result{Entry: entry, Action: "skipped"}
 	}
 
@@ -232,15 +232,15 @@ func shouldSymlink(entry config.FileEntry, opts Options) bool {
 	return opts.DefaultMode != "copy"
 }
 
-func containsPlatform(only []string, plat string) bool {
+// intersects reports whether any element of only is present in platforms.
+// An entry with a non-empty Only is active only on a matching platform tag.
+func intersects(only, platforms []string) bool {
 	for _, o := range only {
-		if o == plat {
-			return true
+		for _, p := range platforms {
+			if o == p {
+				return true
+			}
 		}
 	}
 	return false
-}
-
-func currentPlatform(repoRoot string) string {
-	return platform.Detect()
 }

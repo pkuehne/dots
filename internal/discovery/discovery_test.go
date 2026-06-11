@@ -26,7 +26,7 @@ func makeRepo(t *testing.T, files map[string]string) config.Config {
 
 func TestWalk_EmptyRepo(t *testing.T) {
 	cfg := makeRepo(t, nil)
-	entries, err := discovery.Walk(cfg, "linux")
+	entries, err := discovery.Walk(cfg, []string{"linux"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -40,7 +40,7 @@ func TestWalk_SimpleFile(t *testing.T) {
 	cfg := makeRepo(t, map[string]string{
 		"files/.gitconfig": "[user]\n  name = test",
 	})
-	entries, err := discovery.Walk(cfg, "linux")
+	entries, err := discovery.Walk(cfg, []string{"linux"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -64,7 +64,7 @@ func TestWalk_NestedFile(t *testing.T) {
 	cfg := makeRepo(t, map[string]string{
 		"files/.config/nvim/init.lua": "-- config",
 	})
-	entries, err := discovery.Walk(cfg, "linux")
+	entries, err := discovery.Walk(cfg, []string{"linux"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -78,14 +78,14 @@ func TestWalk_NestedFile(t *testing.T) {
 
 func TestWalk_SkipsGitDir(t *testing.T) {
 	cfg := makeRepo(t, map[string]string{
-		"files/.git/config":    "git stuff",
-		"files/.gitconfig":     "[user]",
-		"files/.DS_Store":      "junk",
-		"files/real.txt":       "real",
-		"files/backup.txt~":    "temp",
+		"files/.git/config":     "git stuff",
+		"files/.gitconfig":      "[user]",
+		"files/.DS_Store":       "junk",
+		"files/real.txt":        "real",
+		"files/backup.txt~":     "temp",
 		"files/session.txt.swp": "swap",
 	})
-	entries, err := discovery.Walk(cfg, "linux")
+	entries, err := discovery.Walk(cfg, []string{"linux"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -105,7 +105,7 @@ func TestWalk_AgeFileFlagged(t *testing.T) {
 	cfg := makeRepo(t, map[string]string{
 		"files/.ssh/id_rsa.age": "encrypted",
 	})
-	entries, err := discovery.Walk(cfg, "linux")
+	entries, err := discovery.Walk(cfg, []string{"linux"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -126,7 +126,7 @@ func TestWalk_J2FileFlagged(t *testing.T) {
 	cfg := makeRepo(t, map[string]string{
 		"files/.gitconfig.j2": "template",
 	})
-	entries, err := discovery.Walk(cfg, "linux")
+	entries, err := discovery.Walk(cfg, []string{"linux"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -153,7 +153,7 @@ func TestWalk_ExplicitOverridesDiscovered(t *testing.T) {
 	}
 	cfg.Files = []config.FileEntry{explicit}
 
-	entries, err := discovery.Walk(cfg, "linux")
+	entries, err := discovery.Walk(cfg, []string{"linux"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -172,11 +172,85 @@ func TestWalk_ExplicitAppended(t *testing.T) {
 	extra := config.FileEntry{Src: "extra/file", Dst: "~/.extra"}
 	cfg.Files = []config.FileEntry{extra}
 
-	entries, err := discovery.Walk(cfg, "linux")
+	entries, err := discovery.Walk(cfg, []string{"linux"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if len(entries) != 2 {
 		t.Fatalf("got %d entries, want 2", len(entries))
+	}
+}
+
+func find(entries []config.FileEntry, dst string) *config.FileEntry {
+	for i := range entries {
+		if entries[i].Dst == dst {
+			return &entries[i]
+		}
+	}
+	return nil
+}
+
+func countDst(entries []config.FileEntry, dst string) int {
+	n := 0
+	for _, e := range entries {
+		if e.Dst == dst {
+			n++
+		}
+	}
+	return n
+}
+
+// TestWalk_PlatformDirScoped checks that files.d/<tag>/ trees are discovered
+// only for active platform tags, and that each discovered entry carries
+// Only={tag} so deploy re-filters it correctly.
+func TestWalk_PlatformDirScoped(t *testing.T) {
+	home, _ := os.UserHomeDir()
+	cfg := makeRepo(t, map[string]string{
+		"files/.gitconfig":           "[core]",
+		"files.d/linux/.config/sys":  "linux-only",
+		"files.d/wsl/.config/wsl":    "wsl-only",
+		"files.d/darwin/.config/mac": "mac-only",
+	})
+
+	entries, err := discovery.Walk(cfg, []string{"linux", "wsl"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if e := find(entries, filepath.Join(home, ".config/sys")); e == nil {
+		t.Error("files.d/linux entry missing")
+	} else if len(e.Only) != 1 || e.Only[0] != "linux" {
+		t.Errorf("linux entry Only: got %v, want [linux]", e.Only)
+	}
+	if e := find(entries, filepath.Join(home, ".config/wsl")); e == nil {
+		t.Error("files.d/wsl entry missing")
+	} else if len(e.Only) != 1 || e.Only[0] != "wsl" {
+		t.Errorf("wsl entry Only: got %v, want [wsl]", e.Only)
+	}
+	if find(entries, filepath.Join(home, ".config/mac")) != nil {
+		t.Error("files.d/darwin entry must not appear for linux+wsl")
+	}
+}
+
+// TestWalk_PlatformDirOverridesFiles checks that a files.d/<tag>/ entry
+// overrides a same-destination files/ entry (later wins, ADR 004).
+func TestWalk_PlatformDirOverridesFiles(t *testing.T) {
+	home, _ := os.UserHomeDir()
+	cfg := makeRepo(t, map[string]string{
+		"files/.bashrc":       "base",
+		"files.d/wsl/.bashrc": "wsl-override",
+	})
+
+	entries, err := discovery.Walk(cfg, []string{"linux", "wsl"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	dst := filepath.Join(home, ".bashrc")
+	if n := countDst(entries, dst); n != 1 {
+		t.Fatalf("expected a single .bashrc entry, got %d", n)
+	}
+	e := find(entries, dst)
+	if e.Src != filepath.Join("files.d", "wsl", ".bashrc") {
+		t.Errorf("files.d should override files/: got src %q", e.Src)
 	}
 }

@@ -62,8 +62,9 @@ const IncludeLine = "Include ~/.config/dots/ssh/config"
 // sshIncludeLine is an internal alias kept for the helper functions below.
 const sshIncludeLine = IncludeLine
 
-// GenerateConfig returns the SSH config block for all active hosts.
-func GenerateConfig(cfg config.Config, platform string) string {
+// GenerateConfig returns the SSH config block for all active hosts. A host
+// with a non-empty Only is included only when it intersects platforms.
+func GenerateConfig(cfg config.Config, platforms []string) string {
 	lines := []string{
 		shell.GeneratedHeader,
 		"# Source: dots.toml [[ssh.host]]",
@@ -72,7 +73,7 @@ func GenerateConfig(cfg config.Config, platform string) string {
 	}
 
 	for _, host := range cfg.SSH.Hosts {
-		if len(host.Only) > 0 && !sliceContains(host.Only, platform) {
+		if len(host.Only) > 0 && !intersects(host.Only, platforms) {
 			continue
 		}
 		lines = append(lines, "Host "+host.Host)
@@ -92,13 +93,13 @@ func GenerateConfig(cfg config.Config, platform string) string {
 }
 
 // WriteManaged writes the SSH config fragment and inserts the Include line into ~/.ssh/config.
-func WriteManaged(cfg config.Config, platform string, dryRun bool) error {
+func WriteManaged(cfg config.Config, platforms []string, dryRun bool) error {
 	outPath := fileutil.Expand("~/.config/dots/ssh/config")
 	if !dryRun {
 		if err := fileutil.EnsureParent(outPath); err != nil {
 			return err
 		}
-		if err := os.WriteFile(outPath, []byte(GenerateConfig(cfg, platform)), 0o600); err != nil {
+		if err := os.WriteFile(outPath, []byte(GenerateConfig(cfg, platforms)), 0o600); err != nil {
 			return err
 		}
 	}
@@ -115,8 +116,8 @@ func WriteManaged(cfg config.Config, platform string, dryRun bool) error {
 }
 
 // ShowManaged prints the would-be SSH config fragment to stdout.
-func ShowManaged(cfg config.Config, platform string) error {
-	fmt.Print(GenerateConfig(cfg, platform))
+func ShowManaged(cfg config.Config, platforms []string) error {
+	fmt.Print(GenerateConfig(cfg, platforms))
 	return nil
 }
 
@@ -188,6 +189,16 @@ func removeSSHInclude(path string, dryRun bool) error {
 func sliceContains(slice []string, s string) bool {
 	for _, v := range slice {
 		if v == s {
+			return true
+		}
+	}
+	return false
+}
+
+// intersects reports whether any element of a is present in b.
+func intersects(a, b []string) bool {
+	for _, x := range a {
+		if sliceContains(b, x) {
 			return true
 		}
 	}

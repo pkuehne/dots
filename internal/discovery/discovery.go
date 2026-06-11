@@ -12,14 +12,18 @@ import (
 )
 
 // Walk returns all FileEntry values for the given repo. It discovers files
-// under files/ and merges them with the explicit [[file]] entries from cfg:
-// an explicit entry whose src matches a discovered path overrides it;
-// otherwise it is appended.
+// under files/ and the platform-scoped files.d/{tag}/ trees, then merges them
+// with the explicit [[file]] entries from cfg.
+//
+// Precedence (ADR 004), lowest to highest:
+//   - files/ entries (unscoped)
+//   - files.d/{tag}/ entries for each tag in platforms; these carry Only={tag}
+//     and override a same-destination files/ entry (later tag wins)
+//   - explicit [[file]] entries whose src matches override everything
 //
 // Files ending in .age or .j2 are detected and flagged, but left to deploy to
-// handle (or skip). Platform-scoped files.d/{platform}/ discovery is not yet
-// implemented.
-func Walk(cfg config.Config, platform string) ([]config.FileEntry, error) {
+// handle (or skip).
+func Walk(cfg config.Config, platforms []string) ([]config.FileEntry, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return nil, err
@@ -36,7 +40,35 @@ func Walk(cfg config.Config, platform string) ([]config.FileEntry, error) {
 		discovered = append(discovered, entries...)
 	}
 
+	for _, tag := range platforms {
+		tagDir := filepath.Join(cfg.RepoRoot, "files.d", tag)
+		info, err := os.Stat(tagDir)
+		if err != nil || !info.IsDir() {
+			continue
+		}
+		entries, err := walkDir(tagDir, tagDir, cfg.RepoRoot, home, []string{tag})
+		if err != nil {
+			return nil, err
+		}
+		// files.d entries override a same-destination files/ entry (later wins).
+		for _, e := range entries {
+			discovered = overrideByDst(discovered, e)
+		}
+	}
+
 	return mergeEntries(discovered, cfg.Files), nil
+}
+
+// overrideByDst replaces the first entry in list sharing entry's Dst, or
+// appends entry if none matches.
+func overrideByDst(list []config.FileEntry, entry config.FileEntry) []config.FileEntry {
+	for i, e := range list {
+		if e.Dst == entry.Dst {
+			list[i] = entry
+			return list
+		}
+	}
+	return append(list, entry)
 }
 
 // walkDir recurses into dir, producing a FileEntry for each file.

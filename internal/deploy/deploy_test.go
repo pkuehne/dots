@@ -231,3 +231,39 @@ func TestApply_LinkEntryOverridesMode(t *testing.T) {
 		t.Errorf("link=true should force symlink: got %q", r.Action)
 	}
 }
+
+// TestApply_PlatformFilter checks the multi-tag matching rule: an entry with a
+// non-empty Only is active when Only intersects opts.Platforms, skipped
+// otherwise. On WSL, Platforms() is ["linux","wsl"], so an only=["wsl"] entry
+// must apply there but not on a plain linux host.
+func TestApply_PlatformFilter(t *testing.T) {
+	cases := []struct {
+		name      string
+		only      []string
+		platforms []string
+		want      string
+	}{
+		{"wsl-only on wsl host", []string{"wsl"}, []string{"linux", "wsl"}, "linked"},
+		{"wsl-only on plain linux", []string{"wsl"}, []string{"linux"}, "skipped"},
+		{"linux-only on wsl host", []string{"linux"}, []string{"linux", "wsl"}, "linked"},
+		{"darwin-only on wsl host", []string{"darwin"}, []string{"linux", "wsl"}, "skipped"},
+		{"no platforms configured", []string{"linux"}, nil, "skipped"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, opts := makeRepo(t, map[string]string{"files/.gitconfig": "[user]"})
+			opts.Platforms = tc.platforms
+			dst := homeDst(t, opts, ".gitconfig")
+			e := entry("files/.gitconfig", dst)
+			e.Only = tc.only
+
+			r := deploy.Apply(e, opts)
+			if r.Err != nil {
+				t.Fatalf("unexpected error: %v", r.Err)
+			}
+			if r.Action != tc.want {
+				t.Errorf("action: got %q, want %q", r.Action, tc.want)
+			}
+		})
+	}
+}

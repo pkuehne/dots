@@ -38,7 +38,7 @@ func TestEnvSnippetWhenIfTool(t *testing.T) {
 			},
 		},
 	}
-	result := generateEnvSnippet(cfg, "linux")
+	result := generateEnvSnippet(cfg, []string{"linux"})
 	if !strings.Contains(result, "command -v bat") {
 		t.Error("missing if_tool guard")
 	}
@@ -57,14 +57,52 @@ func TestEnvSnippetWhenPlatformFilter(t *testing.T) {
 		},
 	}
 
-	result := generateEnvSnippet(cfg, "termux")
+	result := generateEnvSnippet(cfg, []string{"termux"})
 	if strings.Contains(result, "COLORTERM") {
 		t.Error("COLORTERM should be filtered out on termux")
 	}
 
-	result = generateEnvSnippet(cfg, "linux")
+	result = generateEnvSnippet(cfg, []string{"linux"})
 	if !strings.Contains(result, "COLORTERM") {
 		t.Error("COLORTERM should be present on linux")
+	}
+}
+
+// TestEnvSnippetMultiTagAgreesWithCheck asserts that, for a given tag list, the
+// vars emitted by generateEnvSnippet are exactly the [[env.when]] entries whose
+// Only intersects that list — the same predicate `dots env check` reports on.
+// On WSL the tag list is ["linux","wsl"], so a wsl-only var is emitted there
+// but not on a plain linux host.
+func TestEnvSnippetMultiTagAgreesWithCheck(t *testing.T) {
+	cfg := config.Config{
+		Env: config.EnvConfig{
+			Vars: map[string]string{},
+			When: []config.EnvWhen{
+				{Key: "DISPLAY", Value: ":0", Only: []string{"wsl"}},
+				{Key: "EDITOR", Value: "vim"},
+				{Key: "BROWSER", Value: "safari", Only: []string{"darwin"}},
+			},
+		},
+	}
+
+	// envCheckActive mirrors runEnvCheck's predicate in cmd/dots/commands.go.
+	envCheckActive := func(only, plats []string) bool {
+		if len(only) == 0 {
+			return true
+		}
+		return intersects(only, plats)
+	}
+
+	for _, plats := range [][]string{{"linux"}, {"linux", "wsl"}, {"darwin"}} {
+		snippet := generateEnvSnippet(cfg, plats)
+		for _, w := range cfg.Env.When {
+			present := strings.Contains(snippet, w.Key+"=")
+			want := envCheckActive(w.Only, plats)
+			if present != want {
+				t.Errorf("plats=%v key=%s: snippet present=%v, env check active=%v",
+					plats, w.Key, present, want)
+			}
+		}
 	}
 }
 

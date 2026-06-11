@@ -96,9 +96,10 @@ func runApply(cfg config.Config, fileArgs []string, dryRun, forceCopy bool) erro
 		RepoRoot:      cfg.RepoRoot,
 		DefaultMode:   cfg.Meta.DefaultMode,
 		ActiveProfile: cfg.ActiveProfile,
+		Platforms:     platform.Platforms(),
 	}
 
-	entries, err := discovery.Walk(cfg, platform.Detect())
+	entries, err := discovery.Walk(cfg, platform.Platforms())
 	if err != nil {
 		return err
 	}
@@ -174,7 +175,7 @@ func applySSH(cfg config.Config, dryRun bool) error {
 	if !cfg.SSH.Managed {
 		return nil
 	}
-	return gossh.WriteManaged(cfg, platform.Detect(), dryRun)
+	return gossh.WriteManaged(cfg, platform.Platforms(), dryRun)
 }
 
 func applyRepos(cfg config.Config, dryRun bool) error {
@@ -375,7 +376,7 @@ func newStatusCmd() *cobra.Command {
 }
 
 func runStatus(cfg config.Config) error {
-	entries, err := discovery.Walk(cfg, platform.Detect())
+	entries, err := discovery.Walk(cfg, platform.Platforms())
 	if err != nil {
 		return err
 	}
@@ -383,6 +384,7 @@ func runStatus(cfg config.Config) error {
 		RepoRoot:      cfg.RepoRoot,
 		DefaultMode:   cfg.Meta.DefaultMode,
 		ActiveProfile: cfg.ActiveProfile,
+		Platforms:     platform.Platforms(),
 	}
 	fmt.Println("Files:")
 	for _, e := range entries {
@@ -443,7 +445,7 @@ func newDiffCmd() *cobra.Command {
 }
 
 func runDiff(cfg config.Config, filter string) error {
-	entries, err := discovery.Walk(cfg, platform.Detect())
+	entries, err := discovery.Walk(cfg, platform.Platforms())
 	if err != nil {
 		return err
 	}
@@ -451,6 +453,7 @@ func runDiff(cfg config.Config, filter string) error {
 		RepoRoot:      cfg.RepoRoot,
 		DefaultMode:   cfg.Meta.DefaultMode,
 		ActiveProfile: cfg.ActiveProfile,
+		Platforms:     platform.Platforms(),
 	}
 	any := false
 	for _, e := range entries {
@@ -491,7 +494,7 @@ func newListCmd() *cobra.Command {
 }
 
 func runList(cfg config.Config, showAll bool) error {
-	entries, err := discovery.Walk(cfg, platform.Detect())
+	entries, err := discovery.Walk(cfg, platform.Platforms())
 	if err != nil {
 		return err
 	}
@@ -499,6 +502,7 @@ func runList(cfg config.Config, showAll bool) error {
 		RepoRoot:      cfg.RepoRoot,
 		DefaultMode:   cfg.Meta.DefaultMode,
 		ActiveProfile: cfg.ActiveProfile,
+		Platforms:     platform.Platforms(),
 	}
 	for _, e := range entries {
 		r := deploy.Status(e, opts)
@@ -524,7 +528,7 @@ func newEditCmd() *cobra.Command {
 }
 
 func runEdit(fileArg string) error {
-	entries, err := discovery.Walk(globals.cfg, platform.Detect())
+	entries, err := discovery.Walk(globals.cfg, platform.Platforms())
 	if err != nil {
 		return err
 	}
@@ -1197,7 +1201,7 @@ func newSSHCmd() *cobra.Command {
 		Use:   "init",
 		Short: "Enable SSH managed mode",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return gossh.WriteManaged(globals.cfg, platform.Detect(), initDryRun)
+			return gossh.WriteManaged(globals.cfg, platform.Platforms(), initDryRun)
 		},
 	}
 	initSub.Flags().BoolVarP(&initDryRun, "dry-run", "n", false, "print actions without executing")
@@ -1206,7 +1210,7 @@ func newSSHCmd() *cobra.Command {
 		Use:   "show",
 		Short: "Print SSH config fragment",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return gossh.ShowManaged(globals.cfg, platform.Detect())
+			return gossh.ShowManaged(globals.cfg, platform.Platforms())
 		},
 	}
 
