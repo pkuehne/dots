@@ -118,7 +118,12 @@ func runApply(cfg config.Config, fileArgs []string, dryRun, forceCopy bool) erro
 	}
 
 	results := deploy.ApplyAll(entries, opts)
-	printResults(results, dryRun)
+	if n := printResults(results, dryRun); n > 0 {
+		return errs.New(
+			fmt.Sprintf("%d file(s) failed to deploy", n),
+			"See errors above.",
+		)
+	}
 
 	if filesOnly {
 		return nil
@@ -266,7 +271,7 @@ func applyLoginShell(cfg config.Config, dryRun bool) error {
 	return nil
 }
 
-func printResults(results []deploy.Result, dryRun bool) {
+func printResults(results []deploy.Result, dryRun bool) int {
 	counts := map[string]int{}
 	for _, r := range results {
 		if r.Err != nil {
@@ -297,6 +302,7 @@ func printResults(results []deploy.Result, dryRun bool) {
 		fmt.Printf(", %d errors", counts["error"])
 	}
 	fmt.Println()
+	return counts["error"]
 }
 
 func newPreviewCmd() *cobra.Command {

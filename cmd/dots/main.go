@@ -14,6 +14,8 @@ func main() {
 	if err := newRootCmd().Execute(); err != nil {
 		if de, ok := errs.Unwrap(err); ok {
 			fmt.Fprintln(os.Stderr, de.Render())
+		} else {
+			fmt.Fprintf(os.Stderr, "\n✗ %v\n", err)
 		}
 		os.Exit(1)
 	}
@@ -77,8 +79,4 @@ func newRootCmd() *cobra.Command {
 	)
 
 	return root
-}
-
-func todo(name string) error {
-	return fmt.Errorf("%s: not yet implemented", name)
 }

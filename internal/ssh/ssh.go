@@ -5,6 +5,7 @@ package ssh
 import (
 	"fmt"
 	"os"
+	"sort"
 	"strings"
 
 	"github.com/pkuehne/dots/internal/config"
@@ -75,9 +76,14 @@ func GenerateConfig(cfg config.Config, platform string) string {
 			continue
 		}
 		lines = append(lines, "Host "+host.Host)
-		for k, v := range host.Options {
+		keys := make([]string, 0, len(host.Options))
+		for k := range host.Options {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		for _, k := range keys {
 			keyword := SnakeToSSHKeyword(k)
-			lines = append(lines, "    "+keyword+" "+v)
+			lines = append(lines, "    "+keyword+" "+host.Options[k])
 		}
 		lines = append(lines, "")
 	}

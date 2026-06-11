@@ -457,6 +457,70 @@ func TestInstallGitHub_RateLimitError(t *testing.T) {
 	}
 }
 
+func TestInstallGitHub_DownloadNotFound(t *testing.T) {
+	// Release lookup succeeds, but the asset download returns 404 (a JSON error
+	// body that must never be written to disk as the binary).
+	var srv *httptest.Server
+	srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.Path, "/releases/latest") {
+			release := githubRelease{
+				TagName: "v1.0.0",
+				Assets: []githubAsset{{
+					Name:               "tool_1.0.0_linux_amd64.tar.gz",
+					BrowserDownloadURL: srv.URL + "/download/tool_1.0.0_linux_amd64.tar.gz",
+				}},
+			}
+			_ = json.NewEncoder(w).Encode(release)
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer srv.Close()
+	orig := githubAPIBase
+	githubAPIBase = srv.URL
+	defer func() { githubAPIBase = orig }()
+
+	tool := config.Tool{Name: "tool"}
+	inst := config.ToolInstall{
+		Method: "github",
+		Repo:   "example/tool",
+		Asset:  "tool_{version}_linux_amd64.tar.gz",
+	}
+	binDir := t.TempDir()
+	err := installGitHub(tool, inst, binDir)
+	if err == nil {
+		t.Fatal("expected error on 404 asset download")
+	}
+	if !strings.Contains(err.Error(), "404") {
+		t.Errorf("error should mention the HTTP status, got: %v", err)
+	}
+	if _, statErr := os.Stat(filepath.Join(binDir, "tool")); statErr == nil {
+		t.Error("a binary must not be installed when the download fails")
+	}
+}
+
+func TestInstallGitHub_UnsupportedArchive(t *testing.T) {
+	newGitHubTestServer(t, "tool_1.0.0_linux_amd64.tar.xz", []byte("not a real xz"))
+
+	tool := config.Tool{Name: "tool"}
+	inst := config.ToolInstall{
+		Method: "github",
+		Repo:   "example/tool",
+		Asset:  "tool_{version}_linux_amd64.tar.xz",
+	}
+	binDir := t.TempDir()
+	err := installGitHub(tool, inst, binDir)
+	if err == nil {
+		t.Fatal("expected error for unsupported .tar.xz archive")
+	}
+	if !strings.Contains(err.Error(), "unsupported archive") {
+		t.Errorf("unexpected error: %v", err)
+	}
+	if _, statErr := os.Stat(filepath.Join(binDir, "tool")); statErr == nil {
+		t.Error("the compressed archive must not be installed as the binary")
+	}
+}
+
 func TestInstallGitHub_BinaryPath(t *testing.T) {
 	// Archive has two "cmake" files: bin/cmake (the real binary) and
 	// share/completions/cmake (a script). binary_path must select bin/cmake.

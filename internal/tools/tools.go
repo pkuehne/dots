@@ -334,6 +334,13 @@ func githubDownloadAsset(url, dest string) error {
 	}
 	defer resp.Body.Close()
 
+	if resp.StatusCode != http.StatusOK {
+		return errs.NewTool(
+			fmt.Sprintf("asset download returned HTTP %d from %s", resp.StatusCode, url),
+			"The download URL may be expired or the asset removed. Re-run to fetch the latest release.",
+		)
+	}
+
 	f, err := os.Create(dest)
 	if err != nil {
 		return errs.NewTool("cannot create download destination", err.Error())
@@ -434,6 +441,11 @@ func installGitHub(tool config.Tool, inst config.ToolInstall, binDir string) err
 			return err
 		}
 		return findAndInstallBinary(extractDir, binaryName, dest, inst.BinaryPath)
+	case strings.HasSuffix(name, ".tar.xz") || strings.HasSuffix(name, ".tar.bz2") || strings.HasSuffix(name, ".tar.zst"):
+		return errs.NewTool(
+			fmt.Sprintf("unsupported archive format for asset %q", name),
+			"Use the 'asset' field to select a .tar.gz or .zip asset.",
+		)
 	default:
 		return installBinaryFile(downloadPath, dest)
 	}

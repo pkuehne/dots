@@ -133,6 +133,20 @@ func TestToolSnippetHasGuard(t *testing.T) {
 	}
 }
 
+func TestToolSnippetGuardFromWhichCheck(t *testing.T) {
+	tool := config.Tool{
+		Name:  "zoxide",
+		Check: "which zoxide",
+	}
+	result := GenerateToolSnippet(tool, "zsh")
+	if !strings.Contains(result, "command -v zoxide") {
+		t.Errorf("guard should use binary name from 'which' check, got:\n%s", result)
+	}
+	if strings.Contains(result, "command -v which") {
+		t.Error("guard must not use the literal 'which'")
+	}
+}
+
 func TestToolSnippetShellSubstitution(t *testing.T) {
 	tool := config.Tool{
 		Name:  "zoxide",

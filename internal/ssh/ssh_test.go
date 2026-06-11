@@ -108,6 +108,28 @@ func TestGenerateConfig_MultipleHosts(t *testing.T) {
 	}
 }
 
+func TestGenerateConfig_Deterministic(t *testing.T) {
+	cfg := config.Config{}
+	cfg.SSH.Hosts = []config.SSHHost{
+		{
+			Host: "*.internal",
+			Options: map[string]string{
+				"user":          "peter",
+				"port":          "2222",
+				"identity_file": "~/.ssh/id_ed25519",
+				"forward_agent": "yes",
+			},
+		},
+	}
+
+	first := GenerateConfig(cfg, "linux")
+	for i := 0; i < 20; i++ {
+		if got := GenerateConfig(cfg, "linux"); got != first {
+			t.Fatalf("GenerateConfig output not deterministic:\n--- first ---\n%s\n--- got ---\n%s", first, got)
+		}
+	}
+}
+
 func TestWriteManaged_DryRun(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)

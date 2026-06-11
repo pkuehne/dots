@@ -135,8 +135,8 @@ func GenerateToolSnippet(tool config.Tool, shellName string) string {
 	guard := tool.Name
 	if strings.HasPrefix(tool.Check, "which ") {
 		parts := strings.Fields(tool.Check)
-		if len(parts) > 0 {
-			guard = parts[0]
+		if len(parts) > 1 {
+			guard = parts[1]
 		}
 	}
 
