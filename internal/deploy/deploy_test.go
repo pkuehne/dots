@@ -156,6 +156,108 @@ func TestApply_ForceCopy(t *testing.T) {
 	}
 }
 
+func TestApply_CopyConvertsSymlink(t *testing.T) {
+	root, opts := makeRepo(t, map[string]string{"files/.gitconfig": "[user]"})
+	dst := homeDst(t, opts, ".gitconfig")
+
+	// First deploy as a symlink, then switch to copy mode.
+	if r := deploy.Apply(entry("files/.gitconfig", dst), opts); r.Action != "linked" {
+		t.Fatalf("setup: got %q, want linked", r.Action)
+	}
+	opts.ForceCopy = true
+
+	r := deploy.Apply(entry("files/.gitconfig", dst), opts)
+	if r.Err != nil {
+		t.Fatalf("unexpected error: %v", r.Err)
+	}
+	if r.Action != "copied" {
+		t.Errorf("action: got %q, want %q (symlink must be converted)", r.Action, "copied")
+	}
+	if _, err := os.Readlink(dst); err == nil {
+		t.Error("dst should be a regular file after conversion")
+	}
+	// The old symlink was backed up before replacement.
+	if _, err := os.Lstat(dst + ".dots-bak"); err != nil {
+		t.Errorf("backup not created: %v", err)
+	}
+	_ = root
+}
+
+// ── File modes ────────────────────────────────────────────────────────────────
+
+func TestApply_CopyAppliesMode(t *testing.T) {
+	_, opts := makeRepo(t, map[string]string{"files/.netrc": "machine x"})
+	opts.DefaultMode = "copy"
+	dst := homeDst(t, opts, ".netrc")
+	e := entry("files/.netrc", dst)
+	e.Mode = "600"
+
+	r := deploy.Apply(e, opts)
+	if r.Err != nil {
+		t.Fatalf("unexpected error: %v", r.Err)
+	}
+	info, err := os.Stat(dst)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0o600 {
+		t.Errorf("mode: got %v, want 0600", info.Mode().Perm())
+	}
+}
+
+func TestApply_CopyModeReappliedWhenUnchanged(t *testing.T) {
+	_, opts := makeRepo(t, map[string]string{"files/.netrc": "machine x"})
+	opts.DefaultMode = "copy"
+	dst := homeDst(t, opts, ".netrc")
+	e := entry("files/.netrc", dst)
+	e.Mode = "600"
+
+	deploy.Apply(e, opts)
+	if err := os.Chmod(dst, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	r := deploy.Apply(e, opts)
+	if r.Action != "unchanged" {
+		t.Errorf("action: got %q, want unchanged", r.Action)
+	}
+	info, _ := os.Stat(dst)
+	if info.Mode().Perm() != 0o600 {
+		t.Errorf("mode should be restored on the unchanged path: got %v", info.Mode().Perm())
+	}
+}
+
+func TestApply_InvalidMode(t *testing.T) {
+	_, opts := makeRepo(t, map[string]string{"files/.netrc": "machine x"})
+	opts.DefaultMode = "copy"
+	dst := homeDst(t, opts, ".netrc")
+	e := entry("files/.netrc", dst)
+	e.Mode = "rw-r--r--"
+
+	r := deploy.Apply(e, opts)
+	if r.Err == nil {
+		t.Fatal("expected error for non-octal mode string")
+	}
+	if _, err := os.Lstat(dst); err == nil {
+		t.Error("invalid mode must be rejected before any side effect")
+	}
+}
+
+func TestApply_SymlinkIgnoresMode(t *testing.T) {
+	_, opts := makeRepo(t, map[string]string{"files/.gitconfig": "[user]"})
+	dst := homeDst(t, opts, ".gitconfig")
+	e := entry("files/.gitconfig", dst)
+	e.Mode = "600"
+
+	r := deploy.Apply(e, opts)
+	if r.Err != nil {
+		t.Fatalf("unexpected error: %v", r.Err)
+	}
+	if r.Action != "linked" {
+		t.Errorf("action: got %q, want linked (mode is ignored for symlinks)", r.Action)
+	}
+}
+
 // ── Edge cases ────────────────────────────────────────────────────────────────
 
 func TestApply_MissingSrc(t *testing.T) {
@@ -379,5 +481,49 @@ func TestApply_SecretDecrypts(t *testing.T) {
 	// Idempotent: re-applying the same secret leaves it unchanged.
 	if r2 := deploy.Apply(e, opts); r2.Action != "unchanged" {
 		t.Errorf("second apply: got %q, want unchanged", r2.Action)
+	}
+}
+
+// TestApply_SecretCustomMode lets a [[file]] mode override the 0600 default.
+func TestApply_SecretCustomMode(t *testing.T) {
+	root, opts := makeRepo(t, nil)
+	identity := encryptedSecret(t, root, "files/.config/token.age", "tok")
+	opts.Secrets.Identity = identity
+	dst := homeDst(t, opts, ".config/token")
+	e := entry("files/.config/token.age", dst)
+	e.Secret = true
+	e.Mode = "640"
+
+	r := deploy.Apply(e, opts)
+	if r.Err != nil {
+		t.Fatalf("unexpected error: %v", r.Err)
+	}
+	info, err := os.Stat(dst)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0o640 {
+		t.Errorf("mode: got %v, want 0640", info.Mode().Perm())
+	}
+}
+
+// ── Status ────────────────────────────────────────────────────────────────────
+
+// TestStatus_SymlinkWantedCopy: a correct symlink is "diff", not "linked", when
+// the entry asks for copy mode — apply would convert it.
+func TestStatus_SymlinkWantedCopy(t *testing.T) {
+	_, opts := makeRepo(t, map[string]string{"files/.gitconfig": "[user]"})
+	dst := homeDst(t, opts, ".gitconfig")
+	if r := deploy.Apply(entry("files/.gitconfig", dst), opts); r.Action != "linked" {
+		t.Fatalf("setup: got %q, want linked", r.Action)
+	}
+
+	if r := deploy.Status(entry("files/.gitconfig", dst), opts); r.Action != "linked" {
+		t.Errorf("symlink mode status: got %q, want linked", r.Action)
+	}
+
+	opts.DefaultMode = "copy"
+	if r := deploy.Status(entry("files/.gitconfig", dst), opts); r.Action != "diff" {
+		t.Errorf("copy mode status: got %q, want diff", r.Action)
 	}
 }

@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/pkuehne/dots/internal/config"
@@ -51,6 +52,14 @@ func Apply(entry config.FileEntry, opts Options) Result {
 	// Platform filter.
 	if len(entry.Only) > 0 && !intersects(entry.Only, opts.Platforms) {
 		return Result{Entry: entry, Action: "skipped"}
+	}
+
+	// Validate the mode string up front so an invalid one is reported (also in
+	// dry-run) before any side effect.
+	if entry.Mode != "" {
+		if _, err := parseFileMode(entry.Mode); err != nil {
+			return Result{Entry: entry, Err: err}
+		}
 	}
 
 	src := filepath.Join(opts.RepoRoot, entry.Src)
@@ -163,10 +172,11 @@ func Status(entry config.FileEntry, opts Options) Result {
 		return Result{Entry: entry, Action: "missing"}
 	}
 
-	// Symlink: check if it points to src.
+	// Symlink: check if it points to src — and that the entry actually wants a
+	// symlink; a correct link still differs when the entry asks for a copy.
 	if target, err := os.Readlink(dst); err == nil {
 		srcAbs, _ := filepath.Abs(src)
-		if target == srcAbs {
+		if target == srcAbs && shouldSymlink(entry, opts) {
 			return Result{Entry: entry, Action: "linked"}
 		}
 		return Result{Entry: entry, Action: "diff"}
@@ -209,12 +219,20 @@ func applySymlink(entry config.FileEntry, src, dst string) Result {
 }
 
 func applyCopy(entry config.FileEntry, src, dst string) Result {
-	// Same content → no-op (just apply mode if set).
-	if _, err := os.Lstat(dst); err == nil {
-		srcHash, e1 := fileutil.SHA256File(src)
-		dstHash, e2 := fileutil.SHA256File(dst)
-		if e1 == nil && e2 == nil && srcHash == dstHash {
-			return Result{Entry: entry, Action: "unchanged"}
+	if info, err := os.Lstat(dst); err == nil {
+		// An existing symlink is always replaced with a real copy — even one
+		// pointing at identical content (hashing follows the link), otherwise
+		// copy mode could never convert a previously symlinked deployment.
+		if info.Mode()&os.ModeSymlink == 0 {
+			// Same content → no-op (just apply mode if set).
+			srcHash, e1 := fileutil.SHA256File(src)
+			dstHash, e2 := fileutil.SHA256File(dst)
+			if e1 == nil && e2 == nil && srcHash == dstHash {
+				if err := applyEntryMode(dst, entry.Mode); err != nil {
+					return Result{Entry: entry, Err: err}
+				}
+				return Result{Entry: entry, Action: "unchanged"}
+			}
 		}
 		if _, err := fileutil.Backup(dst); err != nil {
 			return Result{Entry: entry, Err: err}
@@ -241,6 +259,9 @@ func applyCopy(entry config.FileEntry, src, dst string) Result {
 	if _, err := io.Copy(out, in); err != nil {
 		return Result{Entry: entry, Err: err}
 	}
+	if err := applyEntryMode(dst, entry.Mode); err != nil {
+		return Result{Entry: entry, Err: err}
+	}
 	return Result{Entry: entry, Action: "copied"}
 }
 
@@ -256,6 +277,9 @@ func applySecret(entry config.FileEntry, src, dst string, opts Options) Result {
 
 	if _, err := os.Lstat(dst); err == nil {
 		if existing, rerr := os.ReadFile(dst); rerr == nil && bytes.Equal(existing, plaintext) {
+			if err := applyEntryMode(dst, entry.Mode); err != nil {
+				return Result{Entry: entry, Err: err}
+			}
 			return Result{Entry: entry, Action: "unchanged"}
 		}
 		if _, err := fileutil.Backup(dst); err != nil {
@@ -269,7 +293,39 @@ func applySecret(entry config.FileEntry, src, dst string, opts Options) Result {
 	if err := os.WriteFile(dst, plaintext, 0o600); err != nil {
 		return Result{Entry: entry, Err: err}
 	}
+	// entry.Mode overrides the 0600 default; chmod explicitly because
+	// os.WriteFile's permission argument is filtered by the umask.
+	if err := applyEntryMode(dst, entry.Mode); err != nil {
+		return Result{Entry: entry, Err: err}
+	}
 	return Result{Entry: entry, Action: "decrypted"}
+}
+
+// parseFileMode parses the octal permission string of a [[file]] entry
+// (e.g. "600" or "0644").
+func parseFileMode(s string) (os.FileMode, error) {
+	v, err := strconv.ParseUint(s, 8, 32)
+	if err != nil {
+		return 0, errs.New(
+			fmt.Sprintf("invalid file mode %q", s),
+			`Use an octal permission string in dots.toml, e.g. mode = "600".`,
+		)
+	}
+	return os.FileMode(v), nil
+}
+
+// applyEntryMode chmods dst to the entry's mode string. An empty mode is a
+// no-op. Symlink entries never reach this — a mode on a symlink is meaningless
+// and is ignored, matching the Python behavior.
+func applyEntryMode(dst, mode string) error {
+	if mode == "" {
+		return nil
+	}
+	m, err := parseFileMode(mode)
+	if err != nil {
+		return err
+	}
+	return os.Chmod(dst, m)
 }
 
 func shouldSymlink(entry config.FileEntry, opts Options) bool {
