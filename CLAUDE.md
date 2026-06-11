@@ -47,7 +47,7 @@ internal/platform/ OS/arch detection — implemented
 internal/errs/     DotsError, ConfigError, ToolInstallError — implemented
 internal/fileutil/ Expand, Sha256File, Backup, EnsureParent, CopyFile — implemented
 internal/discovery/ File discovery (Walk) — implemented
-internal/deploy/   File deployment — symlink/copy/render — implemented
+internal/deploy/   File deployment — symlink/copy/decrypt (.age); .j2 templates unsupported — implemented
 internal/shell/    Snippet generation + InsertBlock/RemoveBlock — implemented
 internal/git/      Git config generation + WriteManaged/Uninit — implemented
 internal/ssh/      SSH config generation + WriteManaged/Uninit — implemented

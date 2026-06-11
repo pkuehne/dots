@@ -3,6 +3,7 @@
 package deploy
 
 import (
+	"bytes"
 	"fmt"
 	"io"
 	"os"
@@ -12,6 +13,7 @@ import (
 	"github.com/pkuehne/dots/internal/config"
 	"github.com/pkuehne/dots/internal/errs"
 	"github.com/pkuehne/dots/internal/fileutil"
+	"github.com/pkuehne/dots/internal/secrets"
 )
 
 // Options controls deploy behaviour.
@@ -21,8 +23,9 @@ type Options struct {
 	RepoRoot      string
 	DefaultMode   string // "symlink" (default) or "copy"
 	ActiveProfile string
-	Platforms     []string // active platform tags (platform.Platforms())
-	HomeDir       string   // override os.UserHomeDir(); used in tests
+	Platforms     []string             // active platform tags (platform.Platforms())
+	Secrets       config.SecretsConfig // age identity/recipient for .age decryption
+	HomeDir       string               // override os.UserHomeDir(); used in tests
 }
 
 // Result describes what happened when a single file was deployed.
@@ -34,9 +37,10 @@ type Result struct {
 
 // Apply deploys a single FileEntry and returns the result.
 func Apply(entry config.FileEntry, opts Options) Result {
-	// Skip templates and secrets — not yet implemented.
-	if entry.Template || entry.Secret {
-		return Result{Entry: entry, Action: "skipped"}
+	// Templates (.j2) are not supported in the Go version — there is no Jinja2
+	// renderer. Skip them, but make the reason visible.
+	if entry.Template {
+		return Result{Entry: entry, Action: "skipped (template — not supported)"}
 	}
 
 	// Profile filter.
@@ -92,6 +96,19 @@ func Apply(entry config.FileEntry, opts Options) Result {
 		return Result{Entry: entry, Action: "missing"}
 	}
 
+	// Secrets: decrypt the .age source and write the plaintext to dst (always
+	// copy mode, 0600 — never symlink a decrypted secret back into the repo).
+	if entry.Secret {
+		if opts.DryRun {
+			// Dry-run reports intent only; never invokes age.
+			return Result{Entry: entry, Action: "decrypt"}
+		}
+		if err := fileutil.EnsureParent(dstAbs); err != nil {
+			return Result{Entry: entry, Err: err}
+		}
+		return applySecret(entry, srcAbs, dstAbs, opts)
+	}
+
 	useLink := shouldSymlink(entry, opts)
 
 	if opts.DryRun {
@@ -124,7 +141,12 @@ func ApplyAll(entries []config.FileEntry, opts Options) []Result {
 // Status returns the current deployment state of an entry without modifying
 // anything.
 func Status(entry config.FileEntry, opts Options) Result {
-	if entry.Template || entry.Secret {
+	if entry.Template {
+		return Result{Entry: entry, Action: "skipped (template — not supported)"}
+	}
+	if entry.Secret {
+		// Reporting real status would require decrypting (and thus age); keep
+		// status advisory and let `apply` perform the decryption.
 		return Result{Entry: entry, Action: "skipped"}
 	}
 	if entry.Profile != "" && entry.Profile != opts.ActiveProfile {
@@ -220,6 +242,34 @@ func applyCopy(entry config.FileEntry, src, dst string) Result {
 		return Result{Entry: entry, Err: err}
 	}
 	return Result{Entry: entry, Action: "copied"}
+}
+
+// applySecret decrypts the .age source in-memory and writes the plaintext to
+// dst with mode 0600. If dst already holds the same plaintext it is left
+// untouched (unchanged); otherwise the existing file is backed up first.
+func applySecret(entry config.FileEntry, src, dst string, opts Options) Result {
+	cfg := config.Config{Secrets: opts.Secrets}
+	plaintext, err := secrets.DecryptToMemory(src, cfg)
+	if err != nil {
+		return Result{Entry: entry, Err: err}
+	}
+
+	if _, err := os.Lstat(dst); err == nil {
+		if existing, rerr := os.ReadFile(dst); rerr == nil && bytes.Equal(existing, plaintext) {
+			return Result{Entry: entry, Action: "unchanged"}
+		}
+		if _, err := fileutil.Backup(dst); err != nil {
+			return Result{Entry: entry, Err: err}
+		}
+		if err := os.Remove(dst); err != nil {
+			return Result{Entry: entry, Err: err}
+		}
+	}
+
+	if err := os.WriteFile(dst, plaintext, 0o600); err != nil {
+		return Result{Entry: entry, Err: err}
+	}
+	return Result{Entry: entry, Action: "decrypted"}
 }
 
 func shouldSymlink(entry config.FileEntry, opts Options) bool {

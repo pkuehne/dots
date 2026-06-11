@@ -14,7 +14,7 @@ internal/
   errs/            DotsError with Hint field; ConfigError, ToolInstallError
   fileutil/        Expand(), Sha256File(), Backup(), EnsureParent(), CopyFile()
   discovery/       Walk() — discovers files/ and files.d/{platform}/
-  deploy/          Apply(), ApplyAll() — symlink/copy/render + Result reporting
+  deploy/          Apply(), ApplyAll() — symlink/copy/decrypt + Result reporting
   shell/           Snippet generation, InsertBlock(), RemoveBlock(), WriteSnippets()
   git/             GenerateConfig(), WriteManaged(), Uninit()
   ssh/             GenerateConfig(), WriteManaged(), Uninit(), SnakeToSSHKeyword()
@@ -30,8 +30,8 @@ internal/
 No `dots.toml` required. `dots apply` discovers all files under `files/` and `files.d/{platform}/`, strips the directory prefix, and symlinks into `~`.
 
 Auto-detection rules (first match wins):
-- `.age` suffix → secret; decrypt with age, write result
-- `.j2` suffix → template; render with Go `text/template`, write result
+- `.age` suffix → secret; decrypt with age, write plaintext (copy mode, `0600`)
+- `.j2` suffix → template; **not supported in the Go version** (no Jinja2/`text/template` renderer) — these entries are skipped with a visible message
 - Everything else → symlink
 
 ### Level 1 — dots.toml: Additive Overrides

@@ -2,7 +2,9 @@ package deploy_test
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/pkuehne/dots/internal/config"
@@ -201,20 +203,12 @@ func TestApply_SkipsTemplate(t *testing.T) {
 	e.Template = true
 
 	r := deploy.Apply(e, opts)
-	if r.Action != "skipped" {
-		t.Errorf("action: got %q, want %q", r.Action, "skipped")
+	if r.Action != "skipped (template — not supported)" {
+		t.Errorf("action: got %q, want template-skip", r.Action)
 	}
-}
-
-func TestApply_SkipsSecret(t *testing.T) {
-	_, opts := makeRepo(t, map[string]string{"files/.ssh/id_rsa.age": "enc"})
-	dst := homeDst(t, opts, ".ssh/id_rsa")
-	e := entry("files/.ssh/id_rsa.age", dst)
-	e.Secret = true
-
-	r := deploy.Apply(e, opts)
-	if r.Action != "skipped" {
-		t.Errorf("action: got %q, want %q", r.Action, "skipped")
+	// Templates must never be materialised.
+	if _, err := os.Lstat(dst); err == nil {
+		t.Errorf("template must not be written")
 	}
 }
 
@@ -265,5 +259,125 @@ func TestApply_PlatformFilter(t *testing.T) {
 				t.Errorf("action: got %q, want %q", r.Action, tc.want)
 			}
 		})
+	}
+}
+
+// ── Secrets ───────────────────────────────────────────────────────────────────
+
+// TestApply_SecretDryRun reports the "decrypt" action without touching disk and
+// without invoking age — PATH is emptied to prove age is never run.
+func TestApply_SecretDryRun(t *testing.T) {
+	_, opts := makeRepo(t, map[string]string{"files/.ssh/id_rsa.age": "enc"})
+	opts.DryRun = true
+	t.Setenv("PATH", t.TempDir())
+	dst := homeDst(t, opts, ".ssh/id_rsa")
+	e := entry("files/.ssh/id_rsa.age", dst)
+	e.Secret = true
+
+	r := deploy.Apply(e, opts)
+	if r.Err != nil {
+		t.Fatalf("unexpected error: %v", r.Err)
+	}
+	if r.Action != "decrypt" {
+		t.Errorf("action: got %q, want %q", r.Action, "decrypt")
+	}
+	if _, err := os.Lstat(dst); err == nil {
+		t.Errorf("dry run must not create dst")
+	}
+}
+
+// TestApply_SecretMissingAge surfaces the decryption failure on Result.Err
+// rather than silently skipping.
+func TestApply_SecretMissingAge(t *testing.T) {
+	_, opts := makeRepo(t, map[string]string{"files/.ssh/id_rsa.age": "enc"})
+	t.Setenv("PATH", t.TempDir())
+	dst := homeDst(t, opts, ".ssh/id_rsa")
+	e := entry("files/.ssh/id_rsa.age", dst)
+	e.Secret = true
+
+	r := deploy.Apply(e, opts)
+	if r.Err == nil {
+		t.Fatal("expected error when age is absent")
+	}
+}
+
+// encryptedSecret generates an age keypair, encrypts plaintext to <root>/<rel>,
+// and returns the identity file path. Skips if age/age-keygen are absent.
+func encryptedSecret(t *testing.T, root, rel, plaintext string) string {
+	t.Helper()
+	if _, err := exec.LookPath("age"); err != nil {
+		t.Skip("age not on PATH")
+	}
+	if _, err := exec.LookPath("age-keygen"); err != nil {
+		t.Skip("age-keygen not on PATH")
+	}
+	dir := t.TempDir()
+	keyFile := filepath.Join(dir, "key.txt")
+	if out, err := exec.Command("age-keygen", "-o", keyFile).CombinedOutput(); err != nil {
+		t.Fatalf("age-keygen: %v\n%s", err, out)
+	}
+	keyBytes, _ := os.ReadFile(keyFile)
+	recipient := ""
+	for _, line := range strings.Split(string(keyBytes), "\n") {
+		if strings.HasPrefix(line, "# public key:") {
+			recipient = strings.TrimSpace(strings.TrimPrefix(line, "# public key:"))
+		}
+	}
+	if recipient == "" {
+		t.Fatal("could not parse public key from age-keygen output")
+	}
+	plainFile := filepath.Join(dir, "plain")
+	if err := os.WriteFile(plainFile, []byte(plaintext), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	ageFile := filepath.Join(root, rel)
+	if err := os.MkdirAll(filepath.Dir(ageFile), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command("age", "--encrypt", "-r", recipient, "-o", ageFile, plainFile)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("age encrypt: %v\n%s", err, out)
+	}
+	return keyFile
+}
+
+// TestApply_SecretDecrypts performs a real decrypt round-trip: the plaintext is
+// written to dst (0600, not a symlink), and a second apply is idempotent.
+func TestApply_SecretDecrypts(t *testing.T) {
+	root, opts := makeRepo(t, nil)
+	identity := encryptedSecret(t, root, "files/.ssh/id_rsa.age", "super-secret")
+	opts.Secrets.Identity = identity
+	dst := homeDst(t, opts, ".ssh/id_rsa")
+	e := entry("files/.ssh/id_rsa.age", dst)
+	e.Secret = true
+
+	r := deploy.Apply(e, opts)
+	if r.Err != nil {
+		t.Fatalf("unexpected error: %v", r.Err)
+	}
+	if r.Action != "decrypted" {
+		t.Errorf("action: got %q, want %q", r.Action, "decrypted")
+	}
+	got, err := os.ReadFile(dst)
+	if err != nil {
+		t.Fatalf("dst not written: %v", err)
+	}
+	if string(got) != "super-secret" {
+		t.Errorf("content: got %q, want %q", got, "super-secret")
+	}
+	info, err := os.Lstat(dst)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		t.Error("decrypted secret must not be a symlink")
+	}
+	if info.Mode().Perm() != 0o600 {
+		t.Errorf("mode: got %v, want 0600", info.Mode().Perm())
+	}
+
+	// Idempotent: re-applying the same secret leaves it unchanged.
+	if r2 := deploy.Apply(e, opts); r2.Action != "unchanged" {
+		t.Errorf("second apply: got %q, want unchanged", r2.Action)
 	}
 }

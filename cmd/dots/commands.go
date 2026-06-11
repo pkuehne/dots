@@ -97,6 +97,7 @@ func runApply(cfg config.Config, fileArgs []string, dryRun, forceCopy bool) erro
 		DefaultMode:   cfg.Meta.DefaultMode,
 		ActiveProfile: cfg.ActiveProfile,
 		Platforms:     platform.Platforms(),
+		Secrets:       cfg.Secrets,
 	}
 
 	entries, err := discovery.Walk(cfg, platform.Platforms())
@@ -332,7 +333,7 @@ func printResults(results []deploy.Result, dryRun bool) int {
 			continue
 		}
 		verb := r.Action
-		if dryRun {
+		if dryRun && !strings.HasPrefix(r.Action, "skipped") {
 			verb = "would " + verb
 		}
 		fmt.Printf("%9s  %s\n", verb, r.Entry.Dst)
