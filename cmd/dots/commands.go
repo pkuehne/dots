@@ -1281,3 +1281,46 @@ func newPresetsCmd() *cobra.Command {
 	cmd.AddCommand(show, eject)
 	return cmd
 }
+
+// ── completion ────────────────────────────────────────────────────────────────
+
+func newCompletionCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "completion [bash|zsh|fish|powershell]",
+		Short: "Generate shell completion script",
+		Long: `Generate a shell completion script for dots and print it to stdout.
+
+To load completions in your current shell session:
+
+  bash:   source <(dots completion bash)
+  zsh:    source <(dots completion zsh)
+  fish:   dots completion fish | source
+
+To install completions permanently, see your shell's documentation for
+the appropriate completions directory (e.g. /etc/bash_completion.d/ or
+~/.zsh/completions/).`,
+		Annotations:       map[string]string{"skipConfig": "true"},
+		ValidArgs:         []string{"bash", "zsh", "fish", "powershell"},
+		Args:              cobra.ExactArgs(1),
+		DisableFlagParsing: false,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			root := cmd.Root()
+			switch args[0] {
+			case "bash":
+				return root.GenBashCompletion(os.Stdout)
+			case "zsh":
+				return root.GenZshCompletion(os.Stdout)
+			case "fish":
+				return root.GenFishCompletion(os.Stdout, true)
+			case "powershell":
+				return root.GenPowerShellCompletionWithDesc(os.Stdout)
+			default:
+				return &errs.DotsError{
+					Msg:  "unknown shell: " + args[0],
+					Hint: "Valid shells: bash, zsh, fish, powershell",
+				}
+			}
+		},
+	}
+	return cmd
+}

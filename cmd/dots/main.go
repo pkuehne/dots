@@ -73,6 +73,7 @@ func newRootCmd() *cobra.Command {
 		newSSHCmd(),
 		newEnvCmd(),
 		newPresetsCmd(),
+		newCompletionCmd(),
 	)
 
 	return root
