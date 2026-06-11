@@ -1,12 +1,9 @@
 {
   "packages": {
     ".": {
-      "release-type": "python",
+      "release-type": "go",
       "package-name": "dots",
-      "bump-minor-pre-major": true,
-      "extra-files": [
-        "src/dots/constants.py"
-      ]
+      "bump-minor-pre-major": true
     }
   }
 }
