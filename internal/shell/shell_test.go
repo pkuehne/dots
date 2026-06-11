@@ -377,7 +377,10 @@ func TestWriteSnippets(t *testing.T) {
 	cfg := config.Config{
 		Shell:       config.ShellConfig{Dir: dir},
 		Env:         config.EnvConfig{Vars: map[string]string{"EDITOR": "vim"}},
-		Tools:       []config.Tool{{Name: "fzf", Shell: config.ToolShell{}}},
+		Tools: []config.Tool{{
+			Name:  "fzf",
+			Shell: config.ToolShell{Env: map[string]string{"FZF_DEFAULT_OPTS": "--height 40%"}},
+		}},
 		ToolsConfig: config.ToolsConfig{BinDir: "~/.local/bin"},
 	}
 
@@ -388,6 +391,135 @@ func TestWriteSnippets(t *testing.T) {
 		if _, err := os.Stat(filepath.Join(dir, name)); err != nil {
 			t.Errorf("expected %s to exist: %v", name, err)
 		}
+	}
+}
+
+// ── toolSnippetFiles / per-tool snippet shapes ───────────────────────────────
+
+func TestWriteSnippetsSkipsToolsWithoutShellConfig(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	dir := t.TempDir()
+	cfg := config.Config{
+		Shell:       config.ShellConfig{Dir: dir},
+		Env:         config.EnvConfig{Vars: map[string]string{}},
+		Tools:       []config.Tool{{Name: "jq", Shell: config.ToolShell{}}},
+		ToolsConfig: config.ToolsConfig{BinDir: "~/.local/bin"},
+	}
+
+	if err := WriteSnippets(cfg, false); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"050-jq.sh", "050-jq.zsh", "050-jq.bash"} {
+		if _, err := os.Stat(filepath.Join(dir, name)); !os.IsNotExist(err) {
+			t.Errorf("tool without shell config must not get snippet %s", name)
+		}
+	}
+}
+
+func TestWriteSnippetsPerShellVariants(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	dir := t.TempDir()
+	cfg := config.Config{
+		Shell: config.ShellConfig{Dir: dir},
+		Env:   config.EnvConfig{Vars: map[string]string{}},
+		Tools: []config.Tool{{
+			Name:  "zoxide",
+			Shell: config.ToolShell{Init: `eval "$(zoxide init {shell})"`},
+		}},
+		ToolsConfig: config.ToolsConfig{BinDir: "~/.local/bin"},
+	}
+
+	if err := WriteSnippets(cfg, false); err != nil {
+		t.Fatal(err)
+	}
+	for name, want := range map[string]string{
+		"050-zoxide.zsh":  "zoxide init zsh",
+		"050-zoxide.bash": "zoxide init bash",
+	} {
+		data, err := os.ReadFile(filepath.Join(dir, name))
+		if err != nil {
+			t.Errorf("expected per-shell variant %s: %v", name, err)
+			continue
+		}
+		if !strings.Contains(string(data), want) {
+			t.Errorf("%s should contain %q, got:\n%s", name, want, data)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(dir, "050-zoxide.sh")); !os.IsNotExist(err) {
+		t.Error("tool with {shell} init must not also get a .sh snippet")
+	}
+}
+
+func TestWriteSnippetsSingleSnippetWithoutPlaceholder(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	dir := t.TempDir()
+	cfg := config.Config{
+		Shell: config.ShellConfig{Dir: dir},
+		Env:   config.EnvConfig{Vars: map[string]string{}},
+		Tools: []config.Tool{{
+			Name:  "direnv",
+			Shell: config.ToolShell{Init: `eval "$(direnv hook bash)"`},
+		}},
+		ToolsConfig: config.ToolsConfig{BinDir: "~/.local/bin"},
+	}
+
+	if err := WriteSnippets(cfg, false); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "050-direnv.sh")); err != nil {
+		t.Errorf("expected single 050-direnv.sh: %v", err)
+	}
+	for _, name := range []string{"050-direnv.zsh", "050-direnv.bash"} {
+		if _, err := os.Stat(filepath.Join(dir, name)); !os.IsNotExist(err) {
+			t.Errorf("plain-init tool must not get per-shell variant %s", name)
+		}
+	}
+}
+
+func TestCleanToolSnippetNaming(t *testing.T) {
+	dir := t.TempDir()
+	// The tool's init uses {shell}, so the .zsh/.bash variants are expected
+	// and a stale .sh from before the init gained {shell} must be removed.
+	for _, name := range []string{"050-zoxide.zsh", "050-zoxide.bash", "050-zoxide.sh"} {
+		_ = os.WriteFile(filepath.Join(dir, name), []byte("# snippet"), 0o644)
+	}
+
+	cfg := config.Config{
+		Shell:    config.ShellConfig{Dir: dir},
+		RepoRoot: t.TempDir(),
+		Tools: []config.Tool{{
+			Name:  "zoxide",
+			Shell: config.ToolShell{Init: `eval "$(zoxide init {shell})"`},
+		}},
+	}
+	if err := Clean(cfg, false); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"050-zoxide.zsh", "050-zoxide.bash"} {
+		if _, err := os.Stat(filepath.Join(dir, name)); err != nil {
+			t.Errorf("%s should survive Clean", name)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(dir, "050-zoxide.sh")); !os.IsNotExist(err) {
+		t.Error("stale 050-zoxide.sh should be removed once init uses {shell}")
+	}
+}
+
+func TestCleanRemovesSnippetOfShellLessTool(t *testing.T) {
+	dir := t.TempDir()
+	stale := filepath.Join(dir, "050-jq.sh")
+	_ = os.WriteFile(stale, []byte("# stale"), 0o644)
+
+	cfg := config.Config{
+		Shell:    config.ShellConfig{Dir: dir},
+		RepoRoot: t.TempDir(),
+		Tools:    []config.Tool{{Name: "jq", Shell: config.ToolShell{}}},
+	}
+	if err := Clean(cfg, false); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(stale); !os.IsNotExist(err) {
+		t.Error("snippet of a tool without shell config should be removed")
 	}
 }
 

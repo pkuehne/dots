@@ -71,10 +71,11 @@ init → apply → show → uninit
 ```
 ~/.config/dots/
   shell.d/
-    000-custom.sh         content of files/.zshrc (migration aid)
     010-env.sh            from [env] + [[env.when]]
     020-path.sh           from [shell] path + tool paths
-    050-{name}.sh         per-tool shell integration
+    050-{name}.sh         per-tool shell integration (050-{name}.zsh/.bash
+                          variants when shell.init uses {shell})
+    099-custom.sh         content of files/.zshrc (migration aid, sourced last)
     {user snippets}       from shell/ directory
   git/
     managed.gitconfig     from [git] + tool contributions
@@ -88,8 +89,8 @@ init → apply → show → uninit
 1. Deploy files/ and files.d/{platform}/ (discovery + explicit [[file]])
 2. Generate and write 010-env.sh, 020-path.sh (if shell.managed)
 3. Deploy user snippets from shell/ (if shell.managed)
-4. Generate per-tool snippets (if shell.managed)
-5. Generate 000-custom.sh from files/.zshrc (if shell.managed + file exists)
+4. Generate per-tool snippets (if shell.managed; only for tools with shell.env/shell.init)
+5. Generate 099-custom.sh from files/.zshrc (if shell.managed + file exists)
 6. Write managed.gitconfig (if git.managed)
 7. Write managed SSH config (if ssh.managed)
 8. Clone missing repos
@@ -104,13 +105,17 @@ A `[[tool]]` entry can contribute to:
 
 | Range   | Owner | Source |
 |---------|-------|--------|
-| 000     | dots  | files/.zshrc content (migration aid) |
 | 010     | dots  | [env] + [[env.when]] |
 | 020     | dots  | [shell] path + tool paths |
 | 030–049 | user  | hand-written snippets |
 | 050–079 | dots  | per-tool generated snippets |
 | 080–089 | user  | post-tool hand-written snippets |
-| 090+    | user  | completions, zsh-only |
+| 090–098 | user  | completions, zsh-only |
+| 099     | dots  | files/.zshrc content (migration aid, sourced last) |
+
+The Python version generated the custom snippet as `000-custom.sh` (sourced
+first); the Go version deliberately names it `099-custom.sh` so the migrated
+`.zshrc` content can override the generated env/path/tool snippets.
 
 ## Idempotency Strategy
 

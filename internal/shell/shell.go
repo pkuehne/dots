@@ -249,6 +249,25 @@ func deployUserSnippets(cfg config.Config, dir string, dryRun bool) error {
 	return nil
 }
 
+// toolSnippetFiles returns the snippet filename → shell-name pairs to generate
+// for one tool, or nil when the tool has no shell integration. A tool whose
+// init contains the {shell} placeholder gets per-shell variants (.zsh/.bash,
+// each only sourced by the matching bootstrapper); otherwise a single
+// shell-neutral .sh. WriteSnippets and Clean both derive snippet names from
+// this so the two cannot drift apart.
+func toolSnippetFiles(tool config.Tool) map[string]string {
+	if len(tool.Shell.Env) == 0 && tool.Shell.Init == "" {
+		return nil
+	}
+	if strings.Contains(tool.Shell.Init, "{shell}") {
+		return map[string]string{
+			fmt.Sprintf("050-%s.zsh", tool.Name):  "zsh",
+			fmt.Sprintf("050-%s.bash", tool.Name): "bash",
+		}
+	}
+	return map[string]string{fmt.Sprintf("050-%s.sh", tool.Name): "bash"}
+}
+
 // WriteSnippets writes all generated snippets to cfg.Shell.Dir and deploys
 // user snippets from <repoRoot>/shell/. User snippets are deployed first, so
 // a generated snippet wins if a user file shares its name.
@@ -271,7 +290,9 @@ func WriteSnippets(cfg config.Config, dryRun bool) error {
 		"020-path.sh": GeneratePathSnippet(cfg),
 	}
 	for _, tool := range cfg.Tools {
-		snippets[fmt.Sprintf("050-%s.sh", tool.Name)] = GenerateToolSnippet(tool, "zsh")
+		for name, shellName := range toolSnippetFiles(tool) {
+			snippets[name] = GenerateToolSnippet(tool, shellName)
+		}
 	}
 	if custom, ok, err := GenerateCustomSnippet(cfg.RepoRoot); err != nil {
 		return err
@@ -352,7 +373,9 @@ func Clean(cfg config.Config, dryRun bool) error {
 		expected["030-fzf.sh"] = true
 	}
 	for _, tool := range cfg.Tools {
-		expected[fmt.Sprintf("050-%s.sh", tool.Name)] = true
+		for name := range toolSnippetFiles(tool) {
+			expected[name] = true
+		}
 	}
 	if _, ok, _ := GenerateCustomSnippet(cfg.RepoRoot); ok {
 		expected["099-custom.sh"] = true
