@@ -1202,21 +1202,24 @@ func runEnvCheck(cfg config.Config) error {
 		fmt.Println("  No [[env.when]] conditions configured.")
 		return nil
 	}
-	plat := platform.Detect()
+	plats := platform.Platforms()
 	for _, w := range cfg.Env.When {
 		active := true
 		var reasons []string
 		if len(w.Only) > 0 {
 			match := false
-			for _, p := range w.Only {
-				if p == plat {
-					match = true
-					break
+		outer:
+			for _, want := range w.Only {
+				for _, have := range plats {
+					if want == have {
+						match = true
+						break outer
+					}
 				}
 			}
 			if !match {
 				active = false
-				reasons = append(reasons, fmt.Sprintf("platform %s not in %v", plat, w.Only))
+				reasons = append(reasons, fmt.Sprintf("platform %v not in %v", plats, w.Only))
 			}
 		}
 		if w.IfTool != "" {

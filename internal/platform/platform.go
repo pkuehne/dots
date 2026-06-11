@@ -4,6 +4,7 @@ package platform
 import (
 	"os"
 	"runtime"
+	"strings"
 )
 
 // Detect returns one of: "linux", "darwin", "windows", "termux".
@@ -56,4 +57,31 @@ func Hostname() string {
 		return ""
 	}
 	return h
+}
+
+// IsWSL reports whether the process is running inside Windows Subsystem for
+// Linux. It checks /proc/version for the "microsoft" or "WSL" strings, which
+// are present in both WSL1 and WSL2 kernels.
+func IsWSL() bool {
+	return isWSLFile("/proc/version")
+}
+
+func isWSLFile(path string) bool {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return false
+	}
+	lower := strings.ToLower(string(data))
+	return strings.Contains(lower, "microsoft") || strings.Contains(lower, "wsl")
+}
+
+// Platforms returns all platform tags that apply to the current environment.
+// On WSL this is ["linux", "wsl"]; on other systems it is [Detect()].
+// Use this for multi-tag matching (e.g. env.when.only, files.d/ scoping).
+func Platforms() []string {
+	p := Detect()
+	if p == "linux" && IsWSL() {
+		return []string{"linux", "wsl"}
+	}
+	return []string{p}
 }
