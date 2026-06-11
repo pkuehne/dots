@@ -504,6 +504,43 @@ func TestInstallGitHub_RateLimitError(t *testing.T) {
 	}
 }
 
+func TestGithubGetReleaseByTag_VPrefixFallback(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/releases/tags/v1.2.3") {
+			_ = json.NewEncoder(w).Encode(githubRelease{TagName: "v1.2.3"})
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer srv.Close()
+	orig := githubAPIBase
+	githubAPIBase = srv.URL
+	defer func() { githubAPIBase = orig }()
+
+	// Bare version falls back to the v-prefixed tag.
+	release, err := githubGetReleaseByTag("user/repo", "1.2.3")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if release.TagName != "v1.2.3" {
+		t.Errorf("TagName = %q, want v1.2.3", release.TagName)
+	}
+
+	// Exact tag works directly.
+	release, err = githubGetReleaseByTag("user/repo", "v1.2.3")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if release.TagName != "v1.2.3" {
+		t.Errorf("TagName = %q, want v1.2.3", release.TagName)
+	}
+
+	// Missing tag surfaces an error.
+	if _, err := githubGetReleaseByTag("user/repo", "9.9.9"); err == nil {
+		t.Error("expected error for missing tag")
+	}
+}
+
 func TestInstallGitHub_DownloadNotFound(t *testing.T) {
 	// Release lookup succeeds, but the asset download returns 404 (a JSON error
 	// body that must never be written to disk as the binary).

@@ -297,7 +297,23 @@ type githubAsset struct {
 }
 
 func githubGetLatestRelease(repo string) (*githubRelease, error) {
-	url := fmt.Sprintf("%s/repos/%s/releases/latest", githubAPIBase, repo)
+	return githubGetRelease(repo, fmt.Sprintf("%s/repos/%s/releases/latest", githubAPIBase, repo))
+}
+
+// githubGetReleaseByTag fetches the release pinned by a [[tool.install]]
+// version field. The tag is tried as given and, if not found, with a "v"
+// prefix (version = "1.2.3" matches both 1.2.3 and v1.2.3 tags).
+func githubGetReleaseByTag(repo, version string) (*githubRelease, error) {
+	release, err := githubGetRelease(repo, fmt.Sprintf("%s/repos/%s/releases/tags/%s", githubAPIBase, repo, version))
+	if err != nil && !strings.HasPrefix(version, "v") {
+		if r2, err2 := githubGetRelease(repo, fmt.Sprintf("%s/repos/%s/releases/tags/v%s", githubAPIBase, repo, version)); err2 == nil {
+			return r2, nil
+		}
+	}
+	return release, err
+}
+
+func githubGetRelease(repo, url string) (*githubRelease, error) {
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		return nil, errs.NewTool(fmt.Sprintf("cannot build GitHub API request for %s", repo), err.Error())
@@ -377,7 +393,13 @@ func githubDownloadAsset(url, dest string) error {
 }
 
 func installGitHub(tool config.Tool, inst config.ToolInstall, binDir string) error {
-	release, err := githubGetLatestRelease(inst.Repo)
+	var release *githubRelease
+	var err error
+	if inst.Version != "" {
+		release, err = githubGetReleaseByTag(inst.Repo, inst.Version)
+	} else {
+		release, err = githubGetLatestRelease(inst.Repo)
+	}
 	if err != nil {
 		return err
 	}
