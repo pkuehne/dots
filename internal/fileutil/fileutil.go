@@ -3,6 +3,7 @@
 package fileutil
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"io"
@@ -112,6 +113,23 @@ func Backup(path string) (string, error) {
 		return "", err
 	}
 	return bak, nil
+}
+
+// WriteIfChanged writes content to path only when the current content
+// differs (creating parent directories as needed), keeping generated-file
+// writes idempotent. Returns true when the file was — or with dryRun would
+// be — written.
+func WriteIfChanged(path string, content []byte, mode os.FileMode, dryRun bool) (bool, error) {
+	if existing, err := os.ReadFile(path); err == nil && bytes.Equal(existing, content) {
+		return false, nil
+	}
+	if dryRun {
+		return true, nil
+	}
+	if err := EnsureParent(path); err != nil {
+		return false, err
+	}
+	return true, os.WriteFile(path, content, mode)
 }
 
 // SHA256File returns the hex SHA-256 digest of a file's contents.

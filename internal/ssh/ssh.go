@@ -92,16 +92,21 @@ func GenerateConfig(cfg config.Config, platforms []string) string {
 	return strings.Join(lines, "\n") + "\n"
 }
 
-// WriteManaged writes the SSH config fragment and inserts the Include line into ~/.ssh/config.
+// WriteManaged writes the SSH config fragment and inserts the Include line
+// into ~/.ssh/config. Both steps are idempotent and report what they changed
+// (or with dryRun would change); unchanged files produce no output.
 func WriteManaged(cfg config.Config, platforms []string, dryRun bool) error {
 	outPath := fileutil.Expand("~/.config/dots/ssh/config")
-	if !dryRun {
-		if err := fileutil.EnsureParent(outPath); err != nil {
-			return err
+	changed, err := fileutil.WriteIfChanged(outPath, []byte(GenerateConfig(cfg, platforms)), 0o600, dryRun)
+	if err != nil {
+		return err
+	}
+	if changed {
+		verb := "wrote"
+		if dryRun {
+			verb = "would write"
 		}
-		if err := os.WriteFile(outPath, []byte(GenerateConfig(cfg, platforms)), 0o600); err != nil {
-			return err
-		}
+		fmt.Printf("  %s %s\n", verb, outPath)
 	}
 
 	sshDir := fileutil.Expand("~/.ssh")
@@ -112,7 +117,18 @@ func WriteManaged(cfg config.Config, platforms []string, dryRun bool) error {
 	}
 
 	sshConfig := fileutil.Expand("~/.ssh/config")
-	return insertSSHInclude(sshConfig, dryRun)
+	inserted, err := insertSSHInclude(sshConfig, dryRun)
+	if err != nil {
+		return err
+	}
+	if inserted {
+		verb := "added"
+		if dryRun {
+			verb = "would add"
+		}
+		fmt.Printf("  %s Include to %s\n", verb, sshConfig)
+	}
+	return nil
 }
 
 // ShowManaged prints the would-be SSH config fragment to stdout.
@@ -128,19 +144,20 @@ func Uninit(cfg config.Config, dryRun bool) error {
 }
 
 // insertSSHInclude prepends sshIncludeLine to path if not already present.
-func insertSSHInclude(path string, dryRun bool) error {
+// Returns true if the file was (or with dryRun would be) modified.
+func insertSSHInclude(path string, dryRun bool) (bool, error) {
 	data, err := os.ReadFile(path)
 	if err != nil && !os.IsNotExist(err) {
-		return err
+		return false, err
 	}
 
 	text := string(data)
 	if strings.Contains(text, sshIncludeLine) {
-		return nil
+		return false, nil
 	}
 
 	if dryRun {
-		return nil
+		return true, nil
 	}
 
 	var newText string
@@ -151,12 +168,12 @@ func insertSSHInclude(path string, dryRun bool) error {
 	}
 
 	if err := fileutil.EnsureParent(path); err != nil {
-		return err
+		return false, err
 	}
 	if err := os.WriteFile(path, []byte(newText), 0o600); err != nil {
-		return err
+		return false, err
 	}
-	return os.Chmod(path, 0o600)
+	return true, os.Chmod(path, 0o600)
 }
 
 // removeSSHInclude removes the sshIncludeLine (and its trailing blank line) from path.

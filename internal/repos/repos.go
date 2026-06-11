@@ -27,8 +27,17 @@ type RepoState struct {
 // If names is non-empty, only those repos are cloned.
 func Clone(cfg config.Config, names []string, dryRun bool) error {
 	for _, r := range active(cfg, names) {
-		if _, err := cloneOne(r, dryRun); err != nil {
+		status, err := cloneOne(r, dryRun)
+		if err != nil {
 			return err
+		}
+		switch status {
+		case "ok":
+			if dryRun {
+				fmt.Printf("  would clone %s → %s\n", r.Name, r.Dst)
+			} else {
+				fmt.Printf("  cloned %s → %s\n", r.Name, r.Dst)
+			}
 		}
 	}
 	return nil
@@ -37,8 +46,19 @@ func Clone(cfg config.Config, names []string, dryRun bool) error {
 // Update fetches and pulls repos that already exist.
 func Update(cfg config.Config, names []string, dryRun bool) error {
 	for _, r := range active(cfg, names) {
-		if _, err := updateOne(r, dryRun); err != nil {
+		status, err := updateOne(r, dryRun)
+		if err != nil {
 			return err
+		}
+		switch status {
+		case "ok":
+			if dryRun {
+				fmt.Printf("  would update %s\n", r.Name)
+			} else {
+				fmt.Printf("  updated %s\n", r.Name)
+			}
+		case "missing":
+			fmt.Printf("  skipped %s (not cloned — run 'dots repos clone')\n", r.Name)
 		}
 	}
 	return nil
