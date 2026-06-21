@@ -28,6 +28,14 @@ go test ./... -v    # verbose test output
 go test ./internal/shell/... -run TestInsertBlock  # single test
 ```
 
+The end-to-end tests build the real binary and drive it as a subprocess
+against a throwaway `HOME` and dotfiles repo. They are gated behind the `e2e`
+build tag so the default `go test ./...` stays fast:
+
+```sh
+go test -tags e2e ./cmd/dots/...   # build the binary and run it for real
+```
+
 ## Adding Features
 
 1. Implement in the relevant `internal/` package
