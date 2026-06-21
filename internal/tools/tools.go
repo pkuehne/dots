@@ -502,12 +502,20 @@ const (
 	symlinkHint   = "The archive contains an absolute symlink. This may be a malicious archive."
 )
 
-// pathEscapes reports whether memberPath would resolve outside dest.
-func pathEscapes(memberPath, dest string) bool {
-	destAbs, _ := filepath.Abs(dest)
-	memberAbs, _ := filepath.Abs(memberPath)
-	prefix := destAbs + string(filepath.Separator)
-	return !strings.HasPrefix(memberAbs, prefix) && memberAbs != destAbs
+// sanitizeArchivePath joins an archive entry name onto dest and verifies the
+// resolved path stays within dest, returning the validated member path. It
+// rejects entries containing ".." (a Zip Slip attack) by checking that the
+// cleaned join is still rooted at dest. Returning the sanitized value (rather
+// than a boolean) keeps the taint flow from check to use explicit.
+func sanitizeArchivePath(dest, name string) (string, error) {
+	memberPath := filepath.Join(dest, filepath.FromSlash(name))
+	if !strings.HasPrefix(memberPath, filepath.Clean(dest)+string(os.PathSeparator)) {
+		return "", errs.NewTool(
+			fmt.Sprintf("refusing to extract %q — path escapes target", name),
+			traversalHint,
+		)
+	}
+	return memberPath, nil
 }
 
 // safeTarExtractAll extracts a .tar.gz archive into dest, rejecting any entry
@@ -540,12 +548,9 @@ func safeTarExtractAll(archivePath, dest string) error {
 			return errs.NewTool("failed to read tar archive", err.Error())
 		}
 
-		memberPath := filepath.Join(dest, filepath.FromSlash(hdr.Name))
-		if pathEscapes(memberPath, dest) {
-			return errs.NewTool(
-				fmt.Sprintf("refusing to extract %q — path escapes target", hdr.Name),
-				traversalHint,
-			)
+		memberPath, err := sanitizeArchivePath(dest, hdr.Name)
+		if err != nil {
+			return err
 		}
 
 		if hdr.Typeflag == tar.TypeSymlink || hdr.Typeflag == tar.TypeLink {
@@ -594,12 +599,9 @@ func safeZipExtractAll(archivePath, dest string) error {
 	}
 
 	for _, f := range r.File {
-		memberPath := filepath.Join(dest, filepath.FromSlash(f.Name))
-		if pathEscapes(memberPath, dest) {
-			return errs.NewTool(
-				fmt.Sprintf("refusing to extract %q — path escapes target", f.Name),
-				traversalHint,
-			)
+		memberPath, err := sanitizeArchivePath(dest, f.Name)
+		if err != nil {
+			return err
 		}
 
 		if f.FileInfo().IsDir() {
