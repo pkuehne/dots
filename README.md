@@ -193,6 +193,7 @@ Files ending in `.age` under `files/` are decrypted automatically during apply.
 | `dots init [dir]` | Scaffold a new dots repository |
 | `dots apply` | Deploy files, generate configs, clone repos |
 | `dots apply --dry-run` | Preview without making changes |
+| `dots apply --summary` | Deploy, printing only the summary line (no per-file status) |
 | `dots status` | Show deployment state |
 | `dots diff [file]` | Show diffs between source and deployed |
 | `dots edit <file>` | Open a managed file in your editor |
