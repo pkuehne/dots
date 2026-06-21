@@ -263,6 +263,39 @@ Port = "2222"
 	}
 }
 
+// TestLoad_SSHHostScalarOptions guards against the regression where non-string
+// SSH option values (a native TOML integer port, a bool) were silently dropped
+// instead of being coerced to strings.
+func TestLoad_SSHHostScalarOptions(t *testing.T) {
+	dir := writeToml(t, `
+[ssh]
+managed = true
+
+[[ssh.host]]
+host = "dev"
+Port = 2222
+ForwardAgent = true
+Compression = false
+`)
+	cfg, err := config.Load(dir, "")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(cfg.SSH.Hosts) != 1 {
+		t.Fatalf("ssh.hosts: got %d, want 1", len(cfg.SSH.Hosts))
+	}
+	opts := cfg.SSH.Hosts[0].Options
+	if opts["Port"] != "2222" {
+		t.Errorf("Port option: got %q, want %q (integer must not be dropped)", opts["Port"], "2222")
+	}
+	if opts["ForwardAgent"] != "yes" {
+		t.Errorf("ForwardAgent option: got %q, want %q", opts["ForwardAgent"], "yes")
+	}
+	if opts["Compression"] != "no" {
+		t.Errorf("Compression option: got %q, want %q", opts["Compression"], "no")
+	}
+}
+
 func TestLoad_Repos(t *testing.T) {
 	dir := writeToml(t, `
 [[repo]]

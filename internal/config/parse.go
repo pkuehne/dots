@@ -32,6 +32,28 @@ func intVal(m map[string]any, key string, def int64) int64 {
 	return def
 }
 
+// scalarToString renders a TOML scalar (string, int, float, bool) as a string.
+// It reports false for non-scalar values (tables, arrays) so callers can skip
+// them rather than store a Go-syntax representation. Used for SSH options,
+// where values are free-form keywords that may be written as native scalars.
+func scalarToString(v any) (string, bool) {
+	switch x := v.(type) {
+	case string:
+		return x, true
+	case bool:
+		if x {
+			return "yes", true
+		}
+		return "no", true
+	case int64:
+		return fmt.Sprintf("%d", x), true
+	case float64:
+		return fmt.Sprintf("%g", x), true
+	default:
+		return "", false
+	}
+}
+
 func strSlice(m map[string]any, key string) []string {
 	v, ok := m[key].([]any)
 	if !ok {
@@ -193,7 +215,10 @@ func parseSSHHosts(raw map[string]any) []SSHHost {
 			if k == "host" || k == "only" {
 				continue
 			}
-			if s, ok := v.(string); ok {
+			// SSH options are written as native TOML scalars — a port is most
+			// naturally `port = 2222`, not `port = "2222"`. Coerce ints, floats,
+			// and bools to their string form so they are not silently dropped.
+			if s, ok := scalarToString(v); ok {
 				h.Options[k] = s
 			}
 		}
