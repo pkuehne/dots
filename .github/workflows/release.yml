@@ -53,11 +53,12 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         # release-please already creates a draft on the push path. For a manual
         # tag run, create one if it is missing so asset uploads stay mutable.
+        # This job has no checkout, so gh needs --repo to locate the repository.
         run: |
           TAG="${{ github.event.inputs.tag }}"
-          if ! gh release view "$TAG" >/dev/null 2>&1; then
-            gh release create "$TAG" --draft --title "$TAG" \
-              --notes "Release $TAG"
+          if ! gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --draft \
+              --title "$TAG" --notes "Release $TAG"
           fi
 
   build:
@@ -112,7 +113,8 @@ jobs:
       # The release was created as a draft so assets stayed mutable during the
       # build job. Publishing it last makes it immutable with all binaries
       # already attached.
+      # This job has no checkout, so gh needs --repo to locate the repository.
       - name: Publish release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release edit "${{ needs.prepare.outputs.tag_name }}" --draft=false
+        run: gh release edit "${{ needs.prepare.outputs.tag_name }}" --repo "$GITHUB_REPOSITORY" --draft=false
