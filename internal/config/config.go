@@ -36,7 +36,7 @@ type GitConfig struct {
 	Editor        string `toml:"editor"`
 	DefaultBranch string `toml:"default_branch"`
 	PullRebase    bool   `toml:"pull_rebase"`
-	SigningKey     string `toml:"signingkey"`
+	SigningKey    string `toml:"signingkey"`
 	Sign          bool   `toml:"sign"`
 }
 
@@ -258,7 +258,7 @@ func Load(repoRoot, profile string) (Config, error) {
 			Editor:        str(g, "editor", ""),
 			DefaultBranch: str(g, "default_branch", "main"),
 			PullRebase:    boolean(g, "pull_rebase", false),
-			SigningKey:     str(g, "signingkey", ""),
+			SigningKey:    str(g, "signingkey", ""),
 			Sign:          boolean(g, "sign", false),
 		}
 	}

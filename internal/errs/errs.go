@@ -34,9 +34,11 @@ type ConfigError struct{ DotsError }
 // ToolInstallError is returned when a tool installation fails.
 type ToolInstallError struct{ DotsError }
 
-func New(msg, hint string) *DotsError           { return &DotsError{Msg: msg, Hint: hint} }
-func NewConfig(msg, hint string) *ConfigError    { return &ConfigError{DotsError{Msg: msg, Hint: hint}} }
-func NewTool(msg, hint string) *ToolInstallError { return &ToolInstallError{DotsError{Msg: msg, Hint: hint}} }
+func New(msg, hint string) *DotsError         { return &DotsError{Msg: msg, Hint: hint} }
+func NewConfig(msg, hint string) *ConfigError { return &ConfigError{DotsError{Msg: msg, Hint: hint}} }
+func NewTool(msg, hint string) *ToolInstallError {
+	return &ToolInstallError{DotsError{Msg: msg, Hint: hint}}
+}
 
 // Unwrap returns the underlying *DotsError for any dots error type, so callers
 // can call Render() without a type switch.

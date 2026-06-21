@@ -79,6 +79,6 @@ config no-ops, never destroy user data). Checkboxes track fix progress.
   drops unknown names.
 - [x] **F17. `doctor` hardcodes `~/.local/bin`** for the PATH check instead
   of `cfg.ToolsConfig.BinDir`.
-- [ ] **F18. Hygiene.** `gofmt -l` flags 7 files; ROADMAP.md still lists
+- [x] **F18. Hygiene.** `gofmt -l` flags 7 files; ROADMAP.md still lists
   LICENSE, CHANGELOG, completions, Phase-7 apply wiring, and WSL detection
   as unchecked though all are shipped.

@@ -29,9 +29,9 @@ import (
 
 func newInitCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "init [dir]",
-		Short: "Scaffold a new dots repository",
-		Args:  cobra.MaximumNArgs(1),
+		Use:         "init [dir]",
+		Short:       "Scaffold a new dots repository",
+		Args:        cobra.MaximumNArgs(1),
 		Annotations: map[string]string{"skipConfig": "true"},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			dir := "."

@@ -426,8 +426,8 @@ func TestWriteSnippets(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	dir := t.TempDir()
 	cfg := config.Config{
-		Shell:       config.ShellConfig{Dir: dir},
-		Env:         config.EnvConfig{Vars: map[string]string{"EDITOR": "vim"}},
+		Shell: config.ShellConfig{Dir: dir},
+		Env:   config.EnvConfig{Vars: map[string]string{"EDITOR": "vim"}},
 		Tools: []config.Tool{{
 			Name:  "fzf",
 			Shell: config.ToolShell{Env: map[string]string{"FZF_DEFAULT_OPTS": "--height 40%"}},

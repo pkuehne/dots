@@ -5,11 +5,11 @@ Contributions welcome — open an issue to discuss before starting larger items.
 
 ## Near-term
 
-- [ ] Add LICENSE file (MIT)
-- [ ] Add CHANGELOG.md skeleton (release-please will populate it on first release)
-- [ ] Wire subsystem commands (shell/git/ssh/tools/repos/presets) into `apply` orchestration (Phase 7)
+- [x] Add LICENSE file (MIT)
+- [x] Add CHANGELOG.md skeleton (release-please will populate it on first release)
+- [x] Wire subsystem commands (shell/git/ssh/tools/repos/presets) into `apply` orchestration (Phase 7)
 - [ ] `--quiet` / `--verbose` flags for scripting and debugging
-- [ ] Shell completions (`dots completion bash/zsh/fish` via cobra)
+- [x] Shell completions (`dots completion bash/zsh/fish` via cobra)
 - [ ] Post-install hooks for tools (e.g. rebuild bat cache, run plugin install)
 - [ ] `files` list in `ToolInstall` — install multiple binaries from one archive (e.g. `cmake` + `cpack` + `ctest`), inspired by the [aqua registry](https://github.com/aquaproj/aqua-registry) `files[].src` pattern
 - [ ] Explicit shell selection — `[shell] shells = ["zsh"]` to opt in to specific shells rather than managing all detected shells; users wanting an unmanaged bash fallback should not have their `.bashrc` modified
@@ -18,7 +18,8 @@ Contributions welcome — open an issue to discuss before starting larger items.
 - [ ] `dots remove` — unlink a managed file and restore original from backup
 - [ ] `dots update` — pull dotfiles repo and re-apply in one shot (useful for cron/login)
 - [ ] `dots self-update` — upgrade dots itself (detect install method: direct binary, package manager)
-- [ ] Add `is_wsl` to platform detection and template context
+- [x] Add `is_wsl` to platform detection (exposed as the `wsl` platform tag;
+      template context dropped with templating, see ADR 014)
 
 ## Later
 

@@ -31,9 +31,9 @@ var globals = struct {
 
 func newRootCmd() *cobra.Command {
 	root := &cobra.Command{
-		Use:          "dots",
-		Short:        "Dotfile management, tool installation, and shell environment generation",
-		SilenceUsage: true,
+		Use:           "dots",
+		Short:         "Dotfile management, tool installation, and shell environment generation",
+		SilenceUsage:  true,
 		SilenceErrors: true,
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 			if cmd.Annotations["skipConfig"] == "true" {

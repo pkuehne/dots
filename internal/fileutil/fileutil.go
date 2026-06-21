@@ -14,7 +14,7 @@ import (
 
 // skipNames is the set of file/dir names always ignored during discovery.
 var skipNames = map[string]bool{
-	".git":     true,
+	".git":      true,
 	".DS_Store": true,
 }
 
