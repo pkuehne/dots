@@ -298,6 +298,44 @@ func TestApply_DryRun(t *testing.T) {
 	}
 }
 
+// F8: dry-run preview must agree with apply on a clean system. An entry
+// already correctly deployed reports "unchanged", not "link"/"copy".
+func TestApply_DryRunReportsUnchanged(t *testing.T) {
+	_, opts := makeRepo(t, map[string]string{"files/.gitconfig": "[user]"})
+	dst := homeDst(t, opts, ".gitconfig")
+	e := entry("files/.gitconfig", dst)
+
+	// First a real apply to create the symlink.
+	if r := deploy.Apply(e, opts); r.Action != "linked" {
+		t.Fatalf("setup apply: got %q, want linked", r.Action)
+	}
+
+	opts.DryRun = true
+	if r := deploy.Apply(e, opts); r.Action != "unchanged" {
+		t.Errorf("dry-run on clean system: got %q, want unchanged", r.Action)
+	}
+
+	// And a fresh dst still previews the deploy action.
+	e2 := entry("files/.gitconfig", homeDst(t, opts, ".other"))
+	if r := deploy.Apply(e2, opts); r.Action != "link" {
+		t.Errorf("dry-run on missing dst: got %q, want link", r.Action)
+	}
+}
+
+// F9: a regular file with identical content where the entry wants a symlink
+// is drifted (apply would relink), not "unchanged".
+func TestStatus_RegularFileWantedSymlink(t *testing.T) {
+	_, opts := makeRepo(t, map[string]string{"files/.gitconfig": "[user]"})
+	dst := homeDst(t, opts, ".gitconfig")
+	// Place identical content as a real file at dst.
+	if err := os.WriteFile(dst, []byte("[user]"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if r := deploy.Status(entry("files/.gitconfig", dst), opts); r.Action != "diff" {
+		t.Errorf("status: got %q, want diff", r.Action)
+	}
+}
+
 func TestApply_SkipsTemplate(t *testing.T) {
 	_, opts := makeRepo(t, map[string]string{"files/.gitconfig.j2": "template"})
 	dst := homeDst(t, opts, ".gitconfig")

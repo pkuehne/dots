@@ -121,11 +121,9 @@ func Apply(entry config.FileEntry, opts Options) Result {
 	useLink := shouldSymlink(entry, opts)
 
 	if opts.DryRun {
-		action := "copy"
-		if useLink {
-			action = "link"
-		}
-		return Result{Entry: entry, Action: action}
+		// Predict the action apply would take so preview and apply agree on a
+		// clean system. Mirrors the no-op detection in applySymlink/applyCopy.
+		return Result{Entry: entry, Action: predictAction(entry, srcAbs, dstAbs, useLink)}
 	}
 
 	if err := fileutil.EnsureParent(dstAbs); err != nil {
@@ -154,9 +152,10 @@ func Status(entry config.FileEntry, opts Options) Result {
 		return Result{Entry: entry, Action: "skipped (template — not supported)"}
 	}
 	if entry.Secret {
-		// Reporting real status would require decrypting (and thus age); keep
-		// status advisory and let `apply` perform the decryption.
-		return Result{Entry: entry, Action: "skipped"}
+		// Reporting real status would require decrypting (and thus age); report
+		// it as a secret (apply performs the decryption) so it stays visible
+		// rather than being hidden with the inactive "skipped" entries.
+		return Result{Entry: entry, Action: "secret"}
 	}
 	if entry.Profile != "" && entry.Profile != opts.ActiveProfile {
 		return Result{Entry: entry, Action: "skipped"}
@@ -182,7 +181,13 @@ func Status(entry config.FileEntry, opts Options) Result {
 		return Result{Entry: entry, Action: "diff"}
 	}
 
-	// Regular file: compare hashes.
+	// Regular file where the entry wants a symlink: apply would back it up and
+	// relink, so it is drifted even if the content currently matches.
+	if shouldSymlink(entry, opts) {
+		return Result{Entry: entry, Action: "diff"}
+	}
+
+	// Regular file in copy mode: compare hashes.
 	srcHash, err1 := fileutil.SHA256File(src)
 	dstHash, err2 := fileutil.SHA256File(dst)
 	if err1 != nil || err2 != nil {
@@ -195,6 +200,28 @@ func Status(entry config.FileEntry, opts Options) Result {
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
+
+// predictAction reports the action Apply would take for entry without touching
+// the filesystem, so --dry-run preview matches a real apply on a clean system.
+func predictAction(entry config.FileEntry, src, dst string, useLink bool) string {
+	if useLink {
+		// A correct symlink already in place is a no-op.
+		if target, err := os.Readlink(dst); err == nil && target == src {
+			return "unchanged"
+		}
+		return "link"
+	}
+	// Copy mode: an existing real file with identical content is a no-op. An
+	// existing symlink is always replaced (applyCopy follows the same rule).
+	if info, err := os.Lstat(dst); err == nil && info.Mode()&os.ModeSymlink == 0 {
+		srcHash, e1 := fileutil.SHA256File(src)
+		dstHash, e2 := fileutil.SHA256File(dst)
+		if e1 == nil && e2 == nil && srcHash == dstHash {
+			return "unchanged"
+		}
+	}
+	return "copy"
+}
 
 func applySymlink(entry config.FileEntry, src, dst string) Result {
 	// Already a correct symlink → no-op.

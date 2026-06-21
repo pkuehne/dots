@@ -329,8 +329,14 @@ func printResults(results []deploy.Result, dryRun bool) int {
 			counts["error"]++
 			continue
 		}
-		counts[r.Action]++
-		if r.Action == "skipped" || r.Action == "unchanged" {
+		// All skip variants (plain, template, platform/profile) roll up into a
+		// single "skipped" tally so the summary count is accurate.
+		if strings.HasPrefix(r.Action, "skipped") {
+			counts["skipped"]++
+		} else {
+			counts[r.Action]++
+		}
+		if strings.HasPrefix(r.Action, "skipped") || r.Action == "unchanged" {
 			continue
 		}
 		verb := r.Action
@@ -405,6 +411,8 @@ func runStatus(cfg config.Config) error {
 			icon = "✗"
 		case "diff":
 			icon = "~"
+		case "secret":
+			icon = "🔒"
 		}
 		fmt.Printf("  %s  %-10s  %s\n", icon, r.Action, e.Dst)
 	}
