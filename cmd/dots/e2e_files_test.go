@@ -254,14 +254,13 @@ func TestE2E_ZeroConfig(t *testing.T) {
 	assertSymlink(t, filepath.Join(home, ".config", "vimrc"))
 }
 
-// TestE2E_SecretStatusAndDecrypt covers the secret (.age) path without
-// requiring age for the parts that do not need it, and skips the round-trip
-// when age is unavailable.
-func TestE2E_SecretStatusAndDecrypt(t *testing.T) {
+// TestE2E_SecretStatusReporting covers the secret (.age) status path, which
+// requires no age binary: a discovered .age file is flagged as a secret rather
+// than being decrypted. Uses an intentionally-bogus .age file, so it must NOT
+// apply (apply would try to decrypt the garbage).
+func TestE2E_SecretStatusReporting(t *testing.T) {
 	home := t.TempDir()
 	repo := scaffoldRepo(t)
-	// A discovered .age file is flagged secret; status reports it without
-	// decrypting (so no age binary is required for this assertion).
 	writeFile(t, filepath.Join(repo, "files", ".secret-token.age"), "not real ciphertext\n")
 	writeToml(t, repo, "[meta]\nversion = 1\n")
 
@@ -276,21 +275,22 @@ func TestE2E_SecretStatusAndDecrypt(t *testing.T) {
 		t.Fatalf("decrypt of non-.age file should fail; output:\n%s", out)
 	}
 	assertContains(t, "suffix error", out, ".age")
+}
 
+// TestE2E_SecretRoundTrip exercises a real age keypair end to end: generate a
+// key, encrypt a file into the repo, deploy it via the secret (.age) discovery
+// path, and confirm the plaintext lands at the destination with 0600
+// permissions. Skips when age/age-keygen are unavailable. It uses its own clean
+// repo so no invalid .age file can poison the apply.
+func TestE2E_SecretRoundTrip(t *testing.T) {
 	if _, err := exec.LookPath("age"); err != nil {
 		t.Skip("age not installed — skipping encrypt/decrypt round-trip")
 	}
-	secretRoundTrip(t, home, repo)
-}
-
-// secretRoundTrip exercises a real age keypair: generate a key, encrypt a file,
-// deploy it via a secret [[file]] entry, and confirm the plaintext lands at the
-// destination with 0600 permissions.
-func secretRoundTrip(t *testing.T, home, repo string) {
-	t.Helper()
 	if _, err := exec.LookPath("age-keygen"); err != nil {
 		t.Skip("age-keygen not installed — skipping round-trip")
 	}
+	home := t.TempDir()
+	repo := scaffoldRepo(t)
 
 	keyPath := filepath.Join(home, ".config", "dots", "key.txt")
 	if err := os.MkdirAll(filepath.Dir(keyPath), 0o700); err != nil {
