@@ -835,7 +835,9 @@ func runDoctor() int {
 	// Disk space
 	var st syscall.Statfs_t
 	if err := syscall.Statfs(home, &st); err == nil {
-		freeMB := int64(st.Bavail) * st.Bsize / (1024 * 1024)
+		// Bsize is int64 on Linux but uint32 on Darwin; cast both operands so the
+		// multiplication compiles on every platform.
+		freeMB := int64(st.Bavail) * int64(st.Bsize) / (1024 * 1024)
 		if freeMB < 100 {
 			warn(fmt.Sprintf("Low disk space in $HOME: %d MB free", freeMB))
 		} else {
