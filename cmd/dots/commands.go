@@ -106,15 +106,34 @@ func runApply(cfg config.Config, fileArgs []string, dryRun, forceCopy bool) erro
 	}
 
 	if filesOnly {
+		matched := make(map[string]bool, len(fileArgs))
 		var filtered []config.FileEntry
 		for _, e := range entries {
+			added := false
 			for _, a := range fileArgs {
 				if strings.Contains(e.Src, a) || strings.Contains(e.Dst, a) ||
 					filepath.Base(e.Dst) == a {
-					filtered = append(filtered, e)
-					break
+					matched[a] = true
+					if !added {
+						filtered = append(filtered, e)
+						added = true
+					}
 				}
 			}
+		}
+		// A name that matches nothing is almost always a typo; failing loudly
+		// beats a misleading "0 linked, 0 copied" success.
+		var unmatched []string
+		for _, a := range fileArgs {
+			if !matched[a] {
+				unmatched = append(unmatched, a)
+			}
+		}
+		if len(unmatched) > 0 {
+			return errs.New(
+				"no managed file matches: "+strings.Join(unmatched, ", "),
+				"Run 'dots list' to see managed files, or check the name or path.",
+			)
 		}
 		entries = filtered
 	}
@@ -188,25 +207,27 @@ func applyRepos(cfg config.Config, dryRun bool) error {
 
 func applyPresets(cfg config.Config, dryRun bool) error {
 	if cfg.Presets.Fzf && cfg.Shell.Managed {
-		content, err := presets.Generate("fzf", cfg)
-		if err != nil {
-			return err
-		}
-		// 030-fzf.sh lives inside shell.d (dots-owned); shell.Clean's
-		// `expected` map must list it so apply and clean stay in sync. No
-		// backup is needed for dots-owned files.
+		// fzf key-binding paths differ per shell, and a .sh snippet is sourced
+		// by both bootstrappers, so write a shell-specific 030-fzf.<shell> for
+		// each. shell.Clean's `expected` map must list both so apply and clean
+		// stay in sync. These are dots-owned; writeUserFile skips the write when
+		// unchanged and overwrites without backup (the content is generated).
 		dir := fileutil.Expand(cfg.Shell.Dir)
-		dst := filepath.Join(dir, "030-fzf.sh")
-		if !dryRun {
+		for _, shellName := range []string{"zsh", "bash"} {
+			dst := filepath.Join(dir, "030-fzf."+shellName)
+			content := presets.GenerateFzf(shellName)
+			if dryRun {
+				fmt.Printf("  would write fzf preset → %s\n", dst)
+				continue
+			}
 			if err := os.MkdirAll(dir, 0o755); err != nil {
 				return err
 			}
-			if err := os.WriteFile(dst, []byte(content), 0o644); err != nil {
+			action, err := writeUserFile(dst, content)
+			if err != nil {
 				return err
 			}
-			fmt.Printf("  wrote fzf preset → %s\n", dst)
-		} else {
-			fmt.Printf("  would write fzf preset → %s\n", dst)
+			fmt.Printf("  %s fzf preset → %s\n", action, dst)
 		}
 	}
 	if cfg.Presets.Tmux {
@@ -267,6 +288,29 @@ func writeUserFile(dst, content string) (string, error) {
 		return "", err
 	}
 	return "wrote", nil
+}
+
+// checkKnownTools returns an error if any of names does not match a configured
+// tool, so a typo fails loudly rather than silently matching nothing. A name
+// that exists but is scoped out by tag/platform/profile is still "known".
+func checkKnownTools(allTools []config.Tool, names []string) error {
+	known := make(map[string]bool, len(allTools))
+	for _, t := range allTools {
+		known[t.Name] = true
+	}
+	var unknown []string
+	for _, n := range names {
+		if !known[n] {
+			unknown = append(unknown, n)
+		}
+	}
+	if len(unknown) > 0 {
+		return errs.New(
+			"unknown tool(s): "+strings.Join(unknown, ", "),
+			"Run 'dots tools list' to see configured tools.",
+		)
+	}
+	return nil
 }
 
 func applyTools(cfg config.Config, dryRun bool) error {
@@ -726,12 +770,17 @@ func runDoctor() int {
 		}
 	}
 
-	// ~/.local/bin on PATH
-	localBin := fileutil.Expand("~/.local/bin")
-	if strings.Contains(os.Getenv("PATH"), localBin) {
-		ok("~/.local/bin on PATH")
+	// The configured tools bin_dir on PATH (this is where downloaded tools land,
+	// not a hardcoded ~/.local/bin which may not match the user's config).
+	binDir := cfg.ToolsConfig.BinDir
+	if binDir == "" {
+		binDir = "~/.local/bin"
+	}
+	binDirExpanded := fileutil.Expand(binDir)
+	if strings.Contains(os.Getenv("PATH"), binDirExpanded) {
+		ok(binDir + " on PATH")
 	} else {
-		warn("~/.local/bin not on PATH")
+		warn(binDir + " not on PATH")
 	}
 
 	// Shell bootstrapper
@@ -989,6 +1038,9 @@ func newToolsCmd() *cobra.Command {
 		Use:   "check [names...]",
 		Short: "Check which configured tools are installed",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := checkKnownTools(globals.cfg.Tools, args); err != nil {
+				return err
+			}
 			filtered := tools.Filter(globals.cfg.Tools, args, checkTag, platform.Platforms(), globals.cfg.ActiveProfile)
 			if len(filtered) == 0 {
 				fmt.Println("  No tools configured.")
@@ -1016,6 +1068,9 @@ func newToolsCmd() *cobra.Command {
 		Use:   "install [names...]",
 		Short: "Install missing tools",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := checkKnownTools(globals.cfg.Tools, args); err != nil {
+				return err
+			}
 			plat := platform.Detect()
 			arch := platform.Arch()
 			filtered := tools.Filter(globals.cfg.Tools, args, installTag, platform.Platforms(), globals.cfg.ActiveProfile)

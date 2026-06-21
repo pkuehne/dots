@@ -68,16 +68,16 @@ config no-ops, never destroy user data). Checkboxes track fix progress.
 
 ## Smaller consistency nits
 
-- [ ] **F14. fzf preset is zsh-only but sourced by bash.** `applyPresets`
+- [x] **F14. fzf preset is zsh-only but sourced by bash.** `applyPresets`
   writes `030-fzf.sh` (sourced by both bootstrappers) with hardcoded
   `GenerateFzf("zsh")`. Fix: write per-shell `030-fzf.zsh`/`030-fzf.bash`
   like tool snippets, keep `shell.Clean` expectations in sync.
-- [ ] **F15. Preset idempotency reporting differs**: tmux reports
+- [x] **F15. Preset idempotency reporting differs**: tmux reports
   "unchanged"; fzf unconditionally rewrites and prints "wrote" every apply.
-- [ ] **F16. `dots apply <typo>` succeeds silently** with "0 linked…"
+- [x] **F16. `dots apply <typo>` succeeds silently** with "0 linked…"
   instead of "no files matched"; `tools check/install <unknown>` silently
   drops unknown names.
-- [ ] **F17. `doctor` hardcodes `~/.local/bin`** for the PATH check instead
+- [x] **F17. `doctor` hardcodes `~/.local/bin`** for the PATH check instead
   of `cfg.ToolsConfig.BinDir`.
 - [ ] **F18. Hygiene.** `gofmt -l` flags 7 files; ROADMAP.md still lists
   LICENSE, CHANGELOG, completions, Phase-7 apply wiring, and WSL detection

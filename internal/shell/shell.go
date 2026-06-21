@@ -418,12 +418,14 @@ func Clean(cfg config.Config, dryRun bool) error {
 		"010-env.sh":  true,
 		"020-path.sh": true,
 	}
-	// Keep in sync with applyPresets in cmd/dots/commands.go, which writes
-	// 030-fzf.sh into shell.d when the fzf preset is enabled and the shell is
-	// managed. Without this entry, Clean would delete the preset that apply
-	// just wrote.
+	// Keep in sync with applyPresets in cmd/dots/commands.go, which writes a
+	// per-shell 030-fzf.zsh and 030-fzf.bash into shell.d when the fzf preset
+	// is enabled and the shell is managed. Without these entries, Clean would
+	// delete the presets that apply just wrote. (An older 030-fzf.sh is
+	// intentionally absent so Clean removes it on migration.)
 	if cfg.Presets.Fzf && cfg.Shell.Managed {
-		expected["030-fzf.sh"] = true
+		expected["030-fzf.zsh"] = true
+		expected["030-fzf.bash"] = true
 	}
 	plats := platform.Platforms()
 	for _, tool := range cfg.Tools {

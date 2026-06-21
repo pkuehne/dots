@@ -309,13 +309,20 @@ func TestApplyPresets_FzfWritesToShellD(t *testing.T) {
 		t.Fatalf("applyPresets: %v", err)
 	}
 
-	fzfSnippet := filepath.Join(cfg.Shell.Dir, "030-fzf.sh")
-	data, err := os.ReadFile(fzfSnippet)
-	if err != nil {
-		t.Fatalf("030-fzf.sh not written: %v", err)
-	}
-	if !strings.Contains(string(data), "fzf") {
-		t.Error("030-fzf.sh does not look like an fzf snippet")
+	// A per-shell snippet is written for each shell; both bootstrappers source
+	// only their matching suffix, so the key-binding paths must match the shell.
+	for _, shellName := range []string{"zsh", "bash"} {
+		fzfSnippet := filepath.Join(cfg.Shell.Dir, "030-fzf."+shellName)
+		data, err := os.ReadFile(fzfSnippet)
+		if err != nil {
+			t.Fatalf("030-fzf.%s not written: %v", shellName, err)
+		}
+		if !strings.Contains(string(data), "fzf") {
+			t.Errorf("030-fzf.%s does not look like an fzf snippet", shellName)
+		}
+		if !strings.Contains(string(data), "key-bindings."+shellName) {
+			t.Errorf("030-fzf.%s missing %s-specific key bindings", shellName, shellName)
+		}
 	}
 }
 
@@ -425,12 +432,17 @@ func TestApplyPresets_DryRunNoWrites(t *testing.T) {
 }
 
 func TestRunApply_FilesOnly_SkipsSubsystems(t *testing.T) {
+	t.Setenv("HOME", t.TempDir()) // keep the file deploy off the real home
 	repoRoot := makeTestRepo(t)
 	cfg := makeShellCfg(t)
 	cfg.RepoRoot = repoRoot
+	// A managed file the arg can match, deployed under the fake home.
+	if err := os.WriteFile(filepath.Join(repoRoot, "files", ".testrc"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	// Shell is managed but apply is called with file args — subsystems should be skipped.
 	// Verify bootstrapper is NOT inserted since filesOnly=true.
-	if err := runApply(cfg, []string{"nonexistent.txt"}, false, false); err != nil {
+	if err := runApply(cfg, []string{".testrc"}, false, false); err != nil {
 		t.Fatalf("runApply filesOnly: %v", err)
 	}
 	zshData, _ := os.ReadFile(cfg.Shell.Zshrc)
@@ -451,6 +463,38 @@ func TestRunApply_NoFiles_RunsShell(t *testing.T) {
 	zshData, _ := os.ReadFile(cfg.Shell.Zshrc)
 	if !strings.Contains(string(zshData), shell.MarkerStart) {
 		t.Error("bootstrapper should be inserted when apply runs with no file args")
+	}
+}
+
+// F16: a file arg matching nothing is a typo — apply must fail, not report
+// a misleading "0 linked" success.
+func TestRunApply_UnmatchedArg_Errors(t *testing.T) {
+	repoRoot := makeTestRepo(t)
+	cfg := makeShellCfg(t)
+	cfg.RepoRoot = repoRoot
+
+	err := runApply(cfg, []string{"definitely-not-managed"}, false, false)
+	if err == nil {
+		t.Fatal("expected an error for an unmatched file arg")
+	}
+	if !strings.Contains(err.Error(), "no managed file matches") {
+		t.Errorf("error: got %q, want it to mention no managed file matches", err)
+	}
+}
+
+// F16: tools check/install must reject unknown tool names rather than silently
+// matching nothing.
+func TestCheckKnownTools(t *testing.T) {
+	configured := []config.Tool{{Name: "fzf"}, {Name: "ripgrep"}}
+	if err := checkKnownTools(configured, []string{"fzf"}); err != nil {
+		t.Errorf("known tool should not error: %v", err)
+	}
+	err := checkKnownTools(configured, []string{"fzf", "bogus"})
+	if err == nil {
+		t.Fatal("expected an error for an unknown tool name")
+	}
+	if !strings.Contains(err.Error(), "bogus") {
+		t.Errorf("error should name the unknown tool, got %q", err)
 	}
 }
 

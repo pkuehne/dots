@@ -674,8 +674,10 @@ func TestCleanRemovesStale(t *testing.T) {
 
 func TestCleanKeepsFzfPreset(t *testing.T) {
 	dir := t.TempDir()
-	fzf := filepath.Join(dir, "030-fzf.sh")
-	_ = os.WriteFile(fzf, []byte("# fzf preset"), 0o644)
+	zsh := filepath.Join(dir, "030-fzf.zsh")
+	bash := filepath.Join(dir, "030-fzf.bash")
+	_ = os.WriteFile(zsh, []byte("# fzf preset"), 0o644)
+	_ = os.WriteFile(bash, []byte("# fzf preset"), 0o644)
 
 	cfg := config.Config{
 		Shell:    config.ShellConfig{Dir: dir, Managed: true},
@@ -686,8 +688,32 @@ func TestCleanKeepsFzfPreset(t *testing.T) {
 	if err := Clean(cfg, false); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(fzf); err != nil {
-		t.Error("030-fzf.sh should survive Clean when the fzf preset is enabled")
+	if _, err := os.Stat(zsh); err != nil {
+		t.Error("030-fzf.zsh should survive Clean when the fzf preset is enabled")
+	}
+	if _, err := os.Stat(bash); err != nil {
+		t.Error("030-fzf.bash should survive Clean when the fzf preset is enabled")
+	}
+}
+
+// An older monolithic 030-fzf.sh must be removed on migration to per-shell
+// snippets, since it is no longer in the expected set.
+func TestCleanRemovesLegacyFzfSh(t *testing.T) {
+	dir := t.TempDir()
+	legacy := filepath.Join(dir, "030-fzf.sh")
+	_ = os.WriteFile(legacy, []byte("# fzf preset"), 0o644)
+
+	cfg := config.Config{
+		Shell:    config.ShellConfig{Dir: dir, Managed: true},
+		RepoRoot: t.TempDir(),
+	}
+	cfg.Presets.Fzf = true
+
+	if err := Clean(cfg, false); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(legacy); !os.IsNotExist(err) {
+		t.Error("legacy 030-fzf.sh should be removed on migration")
 	}
 }
 
