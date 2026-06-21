@@ -10,6 +10,10 @@ import (
 	"github.com/pkuehne/dots/internal/errs"
 )
 
+// version is the build version, injected at release time via
+// -ldflags "-X main.version=...". Defaults to "dev" for local builds.
+var version = "dev"
+
 func main() {
 	if err := newRootCmd().Execute(); err != nil {
 		if de, ok := errs.Unwrap(err); ok {
@@ -33,6 +37,7 @@ func newRootCmd() *cobra.Command {
 	root := &cobra.Command{
 		Use:           "dots",
 		Short:         "Dotfile management, tool installation, and shell environment generation",
+		Version:       version,
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
