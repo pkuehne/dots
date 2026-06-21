@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.1](https://github.com/pkuehne/dots/compare/dots-v1.0.0...dots-v1.0.1) (2026-06-21)
+
+
+### Bug Fixes
+
+* ship prebuilt binaries with releases ([#17](https://github.com/pkuehne/dots/issues/17)) ([a61a198](https://github.com/pkuehne/dots/commit/a61a198713f0321a92cd6abd8b27a14d4e0cc9d2))
+
 ## [1.0.0](https://github.com/pkuehne/dots/compare/dots-v0.1.0...dots-v1.0.0) (2026-06-21)
 
 
