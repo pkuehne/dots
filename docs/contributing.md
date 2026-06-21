@@ -36,6 +36,16 @@ build tag so the default `go test ./...` stays fast:
 go test -tags e2e ./cmd/dots/...   # build the binary and run it for real
 ```
 
+The suite (under `cmd/dots/e2e_*_test.go`) covers every managed subsystem —
+file deployment (symlink/copy/mode/platform/profile/secret), shell, git, ssh,
+env, presets, and repos — plus the CLI surface (version, doctor, completion,
+init, add, migrate, tools) and error paths. It is the regression net for
+real-world edge cases; for example, `TestE2E_ErrantZshrcWithShellManaged` pins
+the behaviour when a `files/.zshrc` is symlinked into `~/.zshrc` while
+`shell.managed = true`. When you fix a subtle bug, add an e2e case that would
+have caught it. Tests that need `age` (the secret round-trip) skip gracefully
+when it is not installed.
+
 ## Adding Features
 
 1. Implement in the relevant `internal/` package

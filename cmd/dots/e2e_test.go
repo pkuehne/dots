@@ -4,7 +4,16 @@
 // as a subprocess against a throwaway HOME and dotfiles repo. Unlike the
 // in-process command tests, these exercise main(), the cobra wiring, on-disk
 // config loading, and the real deploy path — the coverage the retired Python
-// Docker e2e suite used to provide.
+// Docker e2e suite (tests/e2e/) used to provide, plus the edge cases that bit
+// us in practice (e.g. an errant files/.zshrc with shell.managed = true).
+//
+// Layout:
+//
+//	e2e_test.go          TestMain, the dots() driver, and assertion helpers
+//	e2e_files_test.go    file deployment: symlink/copy/mode/platform/profile/secret
+//	e2e_shell_test.go    shell.managed: env/path/snippets/bootstrapper + edge cases
+//	e2e_managed_test.go  git / ssh / env / presets / repos managed subsystems
+//	e2e_cli_test.go      version/doctor/completion/init/add/migrate/error paths
 //
 // Run with: go test -tags e2e ./cmd/dots/...
 package main
@@ -38,8 +47,12 @@ func TestMain(m *testing.M) {
 	os.Exit(code)
 }
 
+// ── driver ────────────────────────────────────────────────────────────────────
+
 // dots runs the compiled binary with HOME pinned to home, returning combined
-// output. It never fails the test itself so callers can assert on errors.
+// output. It never fails the test itself so callers can assert on the error.
+// HOME is pinned because every path dots touches (deploy targets, shell.d,
+// ~/.gitconfig, …) is derived from it via os.UserHomeDir / fileutil.Expand.
 func dots(t *testing.T, home string, args ...string) (string, error) {
 	t.Helper()
 	cmd := exec.Command(dotsBin, args...)
@@ -48,8 +61,23 @@ func dots(t *testing.T, home string, args ...string) (string, error) {
 	return string(out), err
 }
 
-// newRepo scaffolds a dotfiles repo via `dots init` and returns its path.
-func newRepo(t *testing.T, home string) string {
+// mustDots runs dots and fails the test if the command errors, returning the
+// combined output for further assertions.
+func mustDots(t *testing.T, home string, args ...string) string {
+	t.Helper()
+	out, err := dots(t, home, args...)
+	if err != nil {
+		t.Fatalf("dots %s: %v\n%s", strings.Join(args, " "), err, out)
+	}
+	return out
+}
+
+// ── repo scaffolding ──────────────────────────────────────────────────────────
+
+// initRepo scaffolds a dotfiles repo via `dots init` and returns its path. This
+// exercises the init command and yields the default dots.toml (shell/git
+// unmanaged); tests needing other config overwrite it with writeToml.
+func initRepo(t *testing.T, home string) string {
 	t.Helper()
 	repo := filepath.Join(t.TempDir(), "dotfiles")
 	if out, err := dots(t, home, "init", repo); err != nil {
@@ -61,121 +89,132 @@ func newRepo(t *testing.T, home string) string {
 	return repo
 }
 
-func TestE2E_Version(t *testing.T) {
-	home := t.TempDir()
-	out, err := dots(t, home, "--version")
-	if err != nil {
-		t.Fatalf("dots --version: %v\n%s", err, out)
+// scaffoldRepo creates an empty repo tree (files/, files.d/, shell/) without a
+// dots.toml, so a test can supply its own config via writeToml. Returns the
+// repo root path.
+func scaffoldRepo(t *testing.T) string {
+	t.Helper()
+	repo := t.TempDir()
+	for _, sub := range []string{"files", "files.d", "shell"} {
+		if err := os.MkdirAll(filepath.Join(repo, sub), 0o755); err != nil {
+			t.Fatal(err)
+		}
 	}
-	// Built without ldflags, so the injected default applies.
-	if !strings.Contains(out, "dots version dev") {
-		t.Errorf("--version output = %q, want it to contain %q", out, "dots version dev")
+	return repo
+}
+
+// writeToml writes dots.toml at the repo root.
+func writeToml(t *testing.T, repo, content string) {
+	t.Helper()
+	writeFile(t, filepath.Join(repo, "dots.toml"), content)
+}
+
+// writeFile writes content to path, creating parent directories.
+func writeFile(t *testing.T, path, content string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
 	}
 }
 
-// TestE2E_ApplyDeploysSymlink is the headline path: init a repo, drop a managed
-// dotfile, apply, and confirm the binary symlinked it into HOME pointing back at
-// the repo source.
-func TestE2E_ApplyDeploysSymlink(t *testing.T) {
-	home := t.TempDir()
-	repo := newRepo(t, home)
-
-	src := filepath.Join(repo, "files", ".testrc")
-	if err := os.WriteFile(src, []byte("# managed by dots\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	if out, err := dots(t, home, "--repo", repo, "apply"); err != nil {
-		t.Fatalf("dots apply: %v\n%s", err, out)
-	}
-
-	dst := filepath.Join(home, ".testrc")
-	fi, err := os.Lstat(dst)
+// readFile returns the contents of path, failing the test if it cannot be read.
+func readFile(t *testing.T, path string) string {
+	t.Helper()
+	data, err := os.ReadFile(path)
 	if err != nil {
-		t.Fatalf("expected ~/.testrc to exist: %v", err)
+		t.Fatalf("read %s: %v", path, err)
+	}
+	return string(data)
+}
+
+// ── filesystem assertions ─────────────────────────────────────────────────────
+
+// assertSymlinkTo asserts path is a symlink whose target equals want.
+func assertSymlinkTo(t *testing.T, path, want string) {
+	t.Helper()
+	fi, err := os.Lstat(path)
+	if err != nil {
+		t.Fatalf("expected %s to exist: %v", path, err)
 	}
 	if fi.Mode()&os.ModeSymlink == 0 {
-		t.Fatalf("~/.testrc is not a symlink (mode %v)", fi.Mode())
+		t.Fatalf("%s is not a symlink (mode %v)", path, fi.Mode())
 	}
-	target, err := os.Readlink(dst)
+	target, err := os.Readlink(path)
 	if err != nil {
-		t.Fatalf("readlink: %v", err)
+		t.Fatalf("readlink %s: %v", path, err)
 	}
-	if target != src {
-		t.Errorf("symlink target = %q, want %q", target, src)
+	if target != want {
+		t.Errorf("symlink %s target = %q, want %q", path, target, want)
 	}
 }
 
-// TestE2E_ApplyIdempotent asserts invariant 3: a second apply changes nothing
-// and still succeeds.
-func TestE2E_ApplyIdempotent(t *testing.T) {
-	home := t.TempDir()
-	repo := newRepo(t, home)
-
-	src := filepath.Join(repo, "files", ".testrc")
-	if err := os.WriteFile(src, []byte("# managed\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	if out, err := dots(t, home, "--repo", repo, "apply"); err != nil {
-		t.Fatalf("first apply: %v\n%s", err, out)
-	}
-	dst := filepath.Join(home, ".testrc")
-	first, err := os.Readlink(dst)
+// assertSymlink asserts path is a symlink (target unchecked).
+func assertSymlink(t *testing.T, path string) {
+	t.Helper()
+	fi, err := os.Lstat(path)
 	if err != nil {
-		t.Fatalf("readlink after first apply: %v", err)
+		t.Fatalf("expected %s to exist: %v", path, err)
 	}
-
-	if out, err := dots(t, home, "--repo", repo, "apply"); err != nil {
-		t.Fatalf("second apply: %v\n%s", err, out)
-	}
-	second, err := os.Readlink(dst)
-	if err != nil {
-		t.Fatalf("readlink after second apply: %v", err)
-	}
-	if first != second {
-		t.Errorf("symlink changed between applies: %q -> %q", first, second)
+	if fi.Mode()&os.ModeSymlink == 0 {
+		t.Fatalf("%s is not a symlink (mode %v)", path, fi.Mode())
 	}
 }
 
-// TestE2E_DryRunNoSideEffects asserts invariant 5: --dry-run writes nothing.
-func TestE2E_DryRunNoSideEffects(t *testing.T) {
-	home := t.TempDir()
-	repo := newRepo(t, home)
-
-	src := filepath.Join(repo, "files", ".testrc")
-	if err := os.WriteFile(src, []byte("# managed\n"), 0o644); err != nil {
-		t.Fatal(err)
+// assertRegularFile asserts path exists and is a regular file (not a symlink).
+func assertRegularFile(t *testing.T, path string) {
+	t.Helper()
+	fi, err := os.Lstat(path)
+	if err != nil {
+		t.Fatalf("expected %s to exist: %v", path, err)
 	}
-
-	if out, err := dots(t, home, "--repo", repo, "apply", "--dry-run"); err != nil {
-		t.Fatalf("dots apply --dry-run: %v\n%s", err, out)
+	if fi.Mode()&os.ModeSymlink != 0 {
+		t.Fatalf("%s is a symlink, want a regular file", path)
 	}
-
-	if _, err := os.Lstat(filepath.Join(home, ".testrc")); !os.IsNotExist(err) {
-		t.Errorf("--dry-run created ~/.testrc (err=%v), want it absent", err)
+	if !fi.Mode().IsRegular() {
+		t.Fatalf("%s is not a regular file (mode %v)", path, fi.Mode())
 	}
 }
 
-// TestE2E_StatusRuns confirms a read-only command works end-to-end against a
-// freshly applied repo.
-func TestE2E_StatusRuns(t *testing.T) {
-	home := t.TempDir()
-	repo := newRepo(t, home)
-
-	src := filepath.Join(repo, "files", ".testrc")
-	if err := os.WriteFile(src, []byte("# managed\n"), 0o644); err != nil {
-		t.Fatal(err)
+// assertNotExists asserts nothing exists at path.
+func assertNotExists(t *testing.T, path string) {
+	t.Helper()
+	if _, err := os.Lstat(path); !os.IsNotExist(err) {
+		t.Errorf("expected %s to be absent (err=%v)", path, err)
 	}
-	if out, err := dots(t, home, "--repo", repo, "apply"); err != nil {
-		t.Fatalf("apply: %v\n%s", err, out)
-	}
+}
 
-	out, err := dots(t, home, "--repo", repo, "status")
+// assertMode asserts the permission bits of path equal want.
+func assertMode(t *testing.T, path string, want os.FileMode) {
+	t.Helper()
+	fi, err := os.Stat(path)
 	if err != nil {
-		t.Fatalf("dots status: %v\n%s", err, out)
+		t.Fatalf("stat %s: %v", path, err)
 	}
-	if !strings.Contains(out, ".testrc") {
-		t.Errorf("status output did not mention the managed file:\n%s", out)
+	if got := fi.Mode().Perm(); got != want {
+		t.Errorf("%s mode = %o, want %o", path, got, want)
 	}
+}
+
+// ── string assertions ─────────────────────────────────────────────────────────
+
+func assertContains(t *testing.T, label, haystack, needle string) {
+	t.Helper()
+	if !strings.Contains(haystack, needle) {
+		t.Errorf("%s: expected to contain %q, got:\n%s", label, needle, haystack)
+	}
+}
+
+func assertNotContains(t *testing.T, label, haystack, needle string) {
+	t.Helper()
+	if strings.Contains(haystack, needle) {
+		t.Errorf("%s: expected NOT to contain %q, got:\n%s", label, needle, haystack)
+	}
+}
+
+// countOccurrences returns how many times needle appears in s.
+func countOccurrences(s, needle string) int {
+	return strings.Count(s, needle)
 }

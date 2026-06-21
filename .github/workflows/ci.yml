@@ -53,4 +53,11 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
+      # age lets the secret (.age) round-trip test run instead of skipping.
+      - name: Install age (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y age
+      - name: Install age (macOS)
+        if: runner.os == 'macOS'
+        run: brew install age
       - run: go test -tags e2e ./cmd/dots/...
