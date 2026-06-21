@@ -6,6 +6,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"testing"
+
+	"github.com/pkuehne/dots/internal/platform"
 )
 
 // ── git ───────────────────────────────────────────────────────────────────────
@@ -117,6 +119,13 @@ identity_file = "~/.ssh/id_ed25519"
 func TestE2E_EnvShowAndCheck(t *testing.T) {
 	home := t.TempDir()
 	repo := scaffoldRepo(t)
+
+	// Scope the conditional var to a platform that is NOT the current one, so it
+	// is reported inactive on every runner (Linux and macOS alike).
+	inactive := "darwin"
+	if platform.Detect() == "darwin" {
+		inactive = "linux"
+	}
 	writeToml(t, repo, `[meta]
 version = 1
 
@@ -124,17 +133,17 @@ version = 1
 EDITOR = "nvim"
 
 [[env.when]]
-key = "MAC_ONLY"
+key = "OFF_PLATFORM"
 value = "1"
-only = ["darwin"]
+only = ["`+inactive+`"]
 `)
 
 	out := mustDots(t, home, "--repo", repo, "env", "show")
 	assertContains(t, "env show EDITOR", out, `export EDITOR="nvim"`)
 
 	out = mustDots(t, home, "--repo", repo, "env", "check")
-	assertContains(t, "env check key", out, "MAC_ONLY")
-	// On a non-darwin runner the darwin-only var is reported inactive.
+	assertContains(t, "env check key", out, "OFF_PLATFORM")
+	// The off-platform var is reported inactive.
 	assertContains(t, "env check inactive marker", out, "✗")
 }
 
