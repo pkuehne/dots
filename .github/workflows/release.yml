@@ -3,6 +3,11 @@ name: Release
 on:
   push:
     branches: [main]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to build binaries for and attach to its release"
+        required: true
 
 permissions:
   contents: write
@@ -12,6 +17,7 @@ permissions:
 jobs:
   release-please:
     name: Release Please
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     outputs:
       release_created: ${{ steps.release.outputs.release_created }}
@@ -24,10 +30,39 @@ jobs:
         # release-type and packages come from release-please-config.json
         # and .release-please-manifest.json (Go).
 
+  prepare:
+    name: Determine release tag
+    needs: release-please
+    # Run for a release-please release on push, or for a manual tag dispatch.
+    if: always() && (github.event_name == 'workflow_dispatch' || needs.release-please.outputs.release_created)
+    runs-on: ubuntu-latest
+    outputs:
+      tag_name: ${{ steps.resolve.outputs.tag_name }}
+    steps:
+      - name: Resolve tag
+        id: resolve
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "tag_name=${{ github.event.inputs.tag }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag_name=${{ needs.release-please.outputs.tag_name }}" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Ensure a draft release exists for manual dispatch
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        # release-please already creates a draft on the push path. For a manual
+        # tag run, create one if it is missing so asset uploads stay mutable.
+        run: |
+          TAG="${{ github.event.inputs.tag }}"
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            gh release create "$TAG" --draft --title "$TAG" \
+              --notes "Release $TAG"
+          fi
+
   build:
     name: Build and upload binaries
-    needs: release-please
-    if: needs.release-please.outputs.release_created
+    needs: prepare
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -44,6 +79,10 @@ jobs:
             goarch: arm64
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Empty on push (defaults to the triggering commit); the chosen tag
+          # on a manual dispatch so binaries match that tag's source.
+          ref: ${{ github.event.inputs.tag }}
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
@@ -55,10 +94,25 @@ jobs:
         run: |
           ASSET="dots_${GOOS}_${GOARCH}"
           go build -trimpath \
-            -ldflags "-s -w -X main.version=${{ needs.release-please.outputs.tag_name }}" \
+            -ldflags "-s -w -X main.version=${{ needs.prepare.outputs.tag_name }}" \
             -o "$ASSET" ./cmd/dots
           echo "ASSET=$ASSET" >> "$GITHUB_ENV"
       - name: Upload to release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release upload "${{ needs.release-please.outputs.tag_name }}" "$ASSET" --clobber
+        run: gh release upload "${{ needs.prepare.outputs.tag_name }}" "$ASSET" --clobber
+
+  publish:
+    name: Publish release
+    needs: [prepare, build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      # The release was created as a draft so assets stayed mutable during the
+      # build job. Publishing it last makes it immutable with all binaries
+      # already attached.
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release edit "${{ needs.prepare.outputs.tag_name }}" --draft=false
