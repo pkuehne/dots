@@ -50,18 +50,18 @@ config no-ops, never destroy user data). Checkboxes track fix progress.
 
 ## Hazards
 
-- [ ] **F11. `099-custom.sh` recursion / repo-mutation trap.**
+- [x] **F11. `099-custom.sh` recursion / repo-mutation trap.**
   `GenerateCustomSnippet` wraps `files/.zshrc` verbatim. Discovery also
   deploys `files/.zshrc` as a symlink to `~/.zshrc`, and `InsertSourceLine`
   writes the bootstrapper through that symlink into the repo file; the next
   apply wraps the marker block (including the snippet-sourcing loop) into
   `099-custom.sh`, which the loop itself sources → infinite recursion.
   Fix: strip the managed marker block when generating the custom snippet.
-- [ ] **F12. `repos update` on a shallow repo runs `git reset --hard`**
+- [x] **F12. `repos update` on a shallow repo runs `git reset --hard`**
   without checking the dirty state `repoState` already knows how to detect —
   local modifications destroyed silently. Fix: skip dirty repos with a
   warning.
-- [ ] **F13. Invariant 4 is false as written.** "No operation modifies
+- [x] **F13. Invariant 4 is false as written.** "No operation modifies
   anything outside ~" — but apt/brew/pkg install methods (sudo auto-prepended
   for apt) write to system locations by design. Scope the invariant to file
   deployment.

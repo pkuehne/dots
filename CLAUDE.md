@@ -62,7 +62,9 @@ internal/tools/    Check, Install, Filter + GitHub release download — implemen
 1. dots binary lives at cmd/dots/main.go. Entry: cobra root command.
 2. No mandatory third-party imports beyond cobra and BurntSushi/toml.
 3. Every user-facing operation is idempotent. Running twice = same result.
-4. No operation modifies anything outside ~. No /etc, no /usr.
+4. File deployment never writes outside ~. No /etc, no /usr. (Tool install
+   methods — apt/brew/pkg — install system packages by design and may use
+   sudo; that is the only sanctioned path that touches system locations.)
 5. Dry run (--dry-run) must produce zero side effects.
 6. Every error has a Hint. Never show a raw traceback.
 7. Generated files always have a header saying they are generated.

@@ -229,6 +229,35 @@ func TestCustomSnippetFromZshrc(t *testing.T) {
 	}
 }
 
+// F11: when files/.zshrc has had the bootstrapper written into it (via the
+// symlink), the custom snippet must not re-wrap the managed marker block —
+// otherwise 099-custom.sh would source the shell.d loop that sources it.
+func TestCustomSnippetStripsManagedBlock(t *testing.T) {
+	dir := t.TempDir()
+	filesDir := filepath.Join(dir, "files")
+	if err := os.MkdirAll(filesDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	content := "alias ll='ls -la'\n\n" + zshBootstrapper + "\n"
+	if err := os.WriteFile(filepath.Join(filesDir, ".zshrc"), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, ok, err := GenerateCustomSnippet(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok {
+		t.Fatal("expected ok=true")
+	}
+	if strings.Contains(result, MarkerStart) {
+		t.Error("custom snippet must not contain the managed marker block")
+	}
+	if !strings.Contains(result, "alias ll") {
+		t.Error("user content outside the block should be preserved")
+	}
+}
+
 func TestCustomSnippetNoneWithoutZshrc(t *testing.T) {
 	dir := t.TempDir()
 	_, ok, err := GenerateCustomSnippet(dir)

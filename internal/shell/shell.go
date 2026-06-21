@@ -180,14 +180,30 @@ func GenerateCustomSnippet(repoRoot string) (string, bool, error) {
 		return "", false, err
 	}
 
+	// Strip any dots-managed marker block. files/.zshrc may be deployed as a
+	// symlink to ~/.zshrc, and InsertSourceLine writes the bootstrapper through
+	// that symlink back into the repo file. Wrapping the block (which sources
+	// shell.d) into 099-custom.sh — itself sourced by that loop — would recurse
+	// infinitely. The bootstrapper belongs in ~/.zshrc, never in a snippet.
+	body := stripMarkerBlock(string(data))
+
 	lines := []string{
 		GeneratedHeader,
 		"# Source: files/.zshrc (migration aid)",
 		"# Regenerate: dots apply",
 		"",
-		strings.TrimRight(string(data), "\n"),
+		strings.TrimRight(body, "\n"),
 	}
 	return strings.Join(lines, "\n") + "\n", true, nil
+}
+
+// stripMarkerBlock removes every dots-managed marker block from text.
+func stripMarkerBlock(text string) string {
+	if !strings.Contains(text, MarkerStart) {
+		return text
+	}
+	re := regexp.MustCompile(`(?s)\n?` + regexp.QuoteMeta(MarkerStart) + `.*?` + regexp.QuoteMeta(MarkerEnd) + `\n?`)
+	return re.ReplaceAllString(text, "\n")
 }
 
 // userSnippetFiles lists the regular files in <repoRoot>/shell/ that dots
@@ -516,8 +532,7 @@ func RemoveBlock(path string, dryRun bool) (bool, error) {
 		return false, nil
 	}
 
-	re := regexp.MustCompile(`(?s)\n?` + regexp.QuoteMeta(MarkerStart) + `.*?` + regexp.QuoteMeta(MarkerEnd) + `\n?`)
-	newText := re.ReplaceAllString(text, "\n")
+	newText := stripMarkerBlock(text)
 	if dryRun {
 		return true, nil
 	}

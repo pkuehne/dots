@@ -317,6 +317,38 @@ func TestUpdateOne_Shallow(t *testing.T) {
 	}
 }
 
+// F12: a dirty shallow repo must be skipped, not hard-reset.
+func TestUpdateOne_DirtySkipped(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+	bare := makeBareRepo(t)
+	makeLocalRepo(t, bare)
+
+	dst := filepath.Join(t.TempDir(), "shallow")
+	r := config.RepoEntry{Name: "test", Repo: "file://" + bare, Dst: dst, Shallow: true}
+	if _, err := cloneOne(r, false); err != nil {
+		t.Fatalf("clone: %v", err)
+	}
+
+	// Introduce an uncommitted local change.
+	if err := os.WriteFile(filepath.Join(dst, "local.txt"), []byte("WIP"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := updateOne(r, false)
+	if err != nil {
+		t.Fatalf("update failed: %v", err)
+	}
+	if result != "dirty" {
+		t.Fatalf("want 'dirty', got %q", result)
+	}
+	// The local change must survive.
+	if _, err := os.Stat(filepath.Join(dst, "local.txt")); err != nil {
+		t.Errorf("dirty update destroyed local change: %v", err)
+	}
+}
+
 // ---------- repoState ----------
 
 func TestRepoState_NotExists(t *testing.T) {

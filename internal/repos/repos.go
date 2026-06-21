@@ -59,6 +59,8 @@ func Update(cfg config.Config, names []string, dryRun bool) error {
 			}
 		case "missing":
 			fmt.Printf("  skipped %s (not cloned — run 'dots repos clone')\n", r.Name)
+		case "dirty":
+			fmt.Printf("  skipped %s (uncommitted local changes — commit or stash first)\n", r.Name)
 		}
 	}
 	return nil
@@ -171,12 +173,23 @@ func cloneOne(r config.RepoEntry, dryRun bool) (string, error) {
 	return "ok", nil
 }
 
-// updateOne updates a single repo. Returns "ok", "missing", or an error.
+// updateOne updates a single repo. Returns "ok", "missing", "dirty", or an
+// error.
 func updateOne(r config.RepoEntry, dryRun bool) (string, error) {
 	dst := fileutil.Expand(r.Dst)
 
 	if _, err := os.Stat(dst); os.IsNotExist(err) {
 		return "missing", nil
+	}
+
+	// A shallow update does `git reset --hard`, which would silently discard
+	// local modifications. Refuse to update a dirty repo so user work survives.
+	// (A normal `git pull` aborts on conflict on its own, so only shallow needs
+	// the guard — but checking unconditionally keeps the behaviour uniform.)
+	if out, err := gitOutput([]string{"status", "--porcelain"}, dst); err == nil {
+		if strings.TrimSpace(out) != "" {
+			return "dirty", nil
+		}
 	}
 
 	if dryRun {
