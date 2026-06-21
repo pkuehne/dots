@@ -68,6 +68,16 @@ func EnsureParent(path string) error {
 // permissions where applicable.
 func ensureDir(dir string) error {
 	if info, err := os.Lstat(dir); err == nil {
+		// Resolve symlinks: a symlink pointing at a directory is a valid
+		// parent. Only a non-directory (or a dangling/non-dir symlink) is an
+		// error. Using Lstat's result directly would reject every
+		// symlinked directory as if it were a regular file.
+		if info.Mode()&os.ModeSymlink != 0 {
+			if target, terr := os.Stat(dir); terr != nil || !target.IsDir() {
+				return &os.PathError{Op: "mkdir", Path: dir, Err: os.ErrExist}
+			}
+			return nil
+		}
 		if !info.IsDir() {
 			return &os.PathError{Op: "mkdir", Path: dir, Err: os.ErrExist}
 		}
