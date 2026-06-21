@@ -3,7 +3,8 @@
     ".": {
       "release-type": "go",
       "package-name": "dots",
-      "bump-minor-pre-major": true
+      "bump-minor-pre-major": true,
+      "release-as": "1.0.0"
     }
   }
 }
