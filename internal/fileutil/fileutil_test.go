@@ -89,6 +89,34 @@ func TestEnsureParent_Idempotent(t *testing.T) {
 	}
 }
 
+func TestEnsureParent_SymlinkedDir(t *testing.T) {
+	base := t.TempDir()
+	// A real directory, and a symlink pointing at it standing in for the
+	// parent — e.g. ~/.config/nvim -> a home-manager/nix store directory.
+	real := filepath.Join(base, "real")
+	if err := os.Mkdir(real, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(base, "link")
+	if err := os.Symlink(real, link); err != nil {
+		t.Fatal(err)
+	}
+	if err := fileutil.EnsureParent(filepath.Join(link, "file.txt")); err != nil {
+		t.Fatalf("EnsureParent through symlinked dir: %v", err)
+	}
+}
+
+func TestEnsureParent_DanglingSymlink(t *testing.T) {
+	base := t.TempDir()
+	link := filepath.Join(base, "link")
+	if err := os.Symlink(filepath.Join(base, "missing"), link); err != nil {
+		t.Fatal(err)
+	}
+	if err := fileutil.EnsureParent(filepath.Join(link, "file.txt")); err == nil {
+		t.Fatal("expected error for dangling symlink parent, got nil")
+	}
+}
+
 func TestBackup_File(t *testing.T) {
 	dir := t.TempDir()
 	src := filepath.Join(dir, "file.txt")
