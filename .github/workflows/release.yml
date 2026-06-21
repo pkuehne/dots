@@ -21,22 +21,44 @@ jobs:
     steps:
       - uses: googleapis/release-please-action@v4
         id: release
-        with:
-          release-type: python
+        # release-type and packages come from release-please-config.json
+        # and .release-please-manifest.json (Go).
 
-  publish:
-    name: Publish to PyPI
+  build:
+    name: Build and upload binaries
     needs: release-please
     if: needs.release-please.outputs.release_created
     runs-on: ubuntu-latest
-    environment: pypi
     permissions:
-      id-token: write
+      contents: write
+    strategy:
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+          - goos: linux
+            goarch: arm64
+          - goos: darwin
+            goarch: amd64
+          - goos: darwin
+            goarch: arm64
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-go@v5
         with:
-          python-version: "3.12"
-      - run: pip install build
-      - run: python -m build
-      - uses: pypa/gh-action-pypi-publish@release/v1
+          go-version-file: go.mod
+      - name: Build
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: 0
+        run: |
+          ASSET="dots_${GOOS}_${GOARCH}"
+          go build -trimpath \
+            -ldflags "-s -w -X main.version=${{ needs.release-please.outputs.tag_name }}" \
+            -o "$ASSET" ./cmd/dots
+          echo "ASSET=$ASSET" >> "$GITHUB_ENV"
+      - name: Upload to release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "${{ needs.release-please.outputs.tag_name }}" "$ASSET" --clobber

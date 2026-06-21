@@ -2,7 +2,27 @@
 
 ## Overview
 
-dots is a single-file Python tool for dotfile management, tool installation, and shell environment generation. It works identically on Linux, macOS, and Termux.
+dots is a Go CLI tool for dotfile management, tool installation, and shell environment generation. It compiles to a single static binary with no runtime dependencies. It works identically on Linux, macOS, and Termux.
+
+## Package Layout
+
+```
+cmd/dots/          CLI entry point (main.go + commands.go)
+internal/
+  config/          Config structs + Load(), FindRepoRoot(), TOML parsing
+  platform/        OS/arch detection (Detect(), Platforms(), Arch())
+  errs/            DotsError with Hint field; ConfigError, ToolInstallError
+  fileutil/        Expand(), SHA256File(), Backup(), EnsureParent(), CopyFile()
+  discovery/       Walk() — discovers files/ and files.d/{platform}/
+  deploy/          Apply(), ApplyAll() — symlink/copy/decrypt + Result reporting
+  shell/           Snippet generation, InsertBlock(), RemoveBlock(), WriteSnippets()
+  git/             GenerateConfig(), WriteManaged(), Uninit()
+  ssh/             GenerateConfig(), WriteManaged(), Uninit(), SnakeToSSHKeyword()
+  secrets/         Encrypt(), Decrypt(), DecryptToMemory() via age subprocess
+  presets/         GenerateFzf(), TmuxPreset, GenerateZprofile(), Eject()
+  repos/           Clone(), Update(), Status(), Filter() via git subprocess
+  tools/           Check(), Install(), Filter() + GitHub release download
+```
 
 ## Configuration Levels
 
@@ -10,8 +30,8 @@ dots is a single-file Python tool for dotfile management, tool installation, and
 No `dots.toml` required. `dots apply` discovers all files under `files/` and `files.d/{platform}/`, strips the directory prefix, and symlinks into `~`.
 
 Auto-detection rules (first match wins):
-- `.age` suffix → secret; decrypt with age, write result
-- `.j2` suffix → template; render with Jinja2, write result
+- `.age` suffix → secret; decrypt with age, write plaintext (copy mode, `0600`)
+- `.j2` suffix → template; **not supported in the Go version** (no Jinja2/`text/template` renderer) — these entries are skipped with a visible message
 - Everything else → symlink
 
 ### Level 1 — dots.toml: Additive Overrides
@@ -51,10 +71,11 @@ init → apply → show → uninit
 ```
 ~/.config/dots/
   shell.d/
-    000-custom.sh         content of files/.zshrc (migration aid)
     010-env.sh            from [env] + [[env.when]]
     020-path.sh           from [shell] path + tool paths
-    050-{name}.sh         per-tool shell integration
+    050-{name}.sh         per-tool shell integration (050-{name}.zsh/.bash
+                          variants when shell.init uses {shell})
+    099-custom.sh         content of files/.zshrc (migration aid, sourced last)
     {user snippets}       from shell/ directory
   git/
     managed.gitconfig     from [git] + tool contributions
@@ -68,8 +89,8 @@ init → apply → show → uninit
 1. Deploy files/ and files.d/{platform}/ (discovery + explicit [[file]])
 2. Generate and write 010-env.sh, 020-path.sh (if shell.managed)
 3. Deploy user snippets from shell/ (if shell.managed)
-4. Generate per-tool snippets (if shell.managed)
-5. Generate 000-custom.sh from files/.zshrc (if shell.managed + file exists)
+4. Generate per-tool snippets (if shell.managed; only for tools with shell.env/shell.init)
+5. Generate 099-custom.sh from files/.zshrc (if shell.managed + file exists)
 6. Write managed.gitconfig (if git.managed)
 7. Write managed SSH config (if ssh.managed)
 8. Clone missing repos
@@ -84,17 +105,21 @@ A `[[tool]]` entry can contribute to:
 
 | Range   | Owner | Source |
 |---------|-------|--------|
-| 000     | dots  | files/.zshrc content (migration aid) |
 | 010     | dots  | [env] + [[env.when]] |
 | 020     | dots  | [shell] path + tool paths |
 | 030–049 | user  | hand-written snippets |
 | 050–079 | dots  | per-tool generated snippets |
 | 080–089 | user  | post-tool hand-written snippets |
-| 090+    | user  | completions, zsh-only |
+| 090–098 | user  | completions, zsh-only |
+| 099     | dots  | files/.zshrc content (migration aid, sourced last) |
+
+The Python version generated the custom snippet as `000-custom.sh` (sourced
+first); the Go version deliberately names it `099-custom.sh` so the migrated
+`.zshrc` content can override the generated env/path/tool snippets.
 
 ## Idempotency Strategy
 
 - **Content comparison**: sha256 hash before overwriting copied files
 - **Symlink check**: resolve() comparison before recreating
-- **Marker-delimited insertion**: regex replace between markers for updates
-- **Backup-before-replace**: `.dots-bak` suffix on any overwritten file
+- **Marker-delimited insertion**: replace between markers for updates (`shell.InsertBlock`)
+- **Backup-before-replace**: `.dots-bak` suffix on any overwritten file (`fileutil.Backup`)

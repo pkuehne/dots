@@ -4,21 +4,21 @@
 
 See docs/architecture.md for a full overview.
 
+The Go implementation lives under `cmd/` and `internal/`. The Python source has been removed (see ADR 014).
+
 ## Commands
 
 ```sh
-# Run tests
-pytest tests/
+# Build
+just build          # → bin/dots
+go build ./...      # compile check
 
-# Run a specific test file
-pytest tests/unit/test_config.py -v
+# Test
+just test           # go test ./...
 
-# Lint and format
-ruff check src/ tests/
-ruff format src/ tests/
-
-# Run e2e tests (requires Docker)
-./tests/e2e/run.sh
+# Format / vet
+just fmt
+just vet
 ```
 
 ## Commits
@@ -38,12 +38,33 @@ refactor: split cli module        # no version bump
 Always use a conventional prefix. Keep the subject line under 70 characters.
 Use the body for detail when needed.
 
+## Go package layout
+
+```
+cmd/dots/          CLI entry point (main.go + commands.go) — implemented
+internal/config/   Config structs + Load(), FindRepoRoot() — implemented
+internal/platform/ OS/arch detection — implemented
+internal/errs/     DotsError, ConfigError, ToolInstallError — implemented
+internal/fileutil/ Expand, Sha256File, Backup, EnsureParent, CopyFile — implemented
+internal/discovery/ File discovery (Walk) — implemented
+internal/deploy/   File deployment — symlink/copy/decrypt (.age); .j2 templates unsupported — implemented
+internal/shell/    Snippet generation + InsertBlock/RemoveBlock — implemented
+internal/git/      Git config generation + WriteManaged/Uninit — implemented
+internal/ssh/      SSH config generation + WriteManaged/Uninit — implemented
+internal/secrets/  age encrypt/decrypt — implemented
+internal/presets/  Preset generation + Eject — implemented
+internal/repos/    Repo cloning + Update/Status — implemented
+internal/tools/    Check, Install, Filter + GitHub release download — implemented
+```
+
 ## Key invariants
 
-1. dots is a Python package under src/dots/. Entry point: dots.cli:main.
-2. No mandatory third-party imports. All optional deps are guarded.
+1. dots binary lives at cmd/dots/main.go. Entry: cobra root command.
+2. No mandatory third-party imports beyond cobra and BurntSushi/toml.
 3. Every user-facing operation is idempotent. Running twice = same result.
-4. No operation modifies anything outside ~. No /etc, no /usr.
+4. File deployment never writes outside ~. No /etc, no /usr. (Tool install
+   methods — apt/brew/pkg — install system packages by design and may use
+   sudo; that is the only sanctioned path that touches system locations.)
 5. Dry run (--dry-run) must produce zero side effects.
 6. Every error has a Hint. Never show a raw traceback.
 7. Generated files always have a header saying they are generated.
@@ -51,31 +72,30 @@ Use the body for detail when needed.
 
 ## Adding a new managed subsystem
 
-1. Add a dataclass in the Config section (e.g. FooConfig)
-2. Add `foo: FooConfig` to the Config dataclass
-3. Parse it in load_config()
-4. Add generate_foo() function
-5. Add cmd_foo_init(), cmd_foo_show(), cmd_foo_uninit()
-6. Wire into cmd_apply() execution order
-7. Wire into build_parser()
-8. Wire into main() dispatch
-9. Add doctor checks
-10. Add unit tests in tests/unit/test_foo_config.py
-11. Add integration tests in tests/integration/test_foo_managed.py
-12. Write adr/NNN-foo-managed.md
+1. Add a struct (e.g. `FooConfig`) in `internal/config/config.go`
+2. Add `Foo FooConfig` to the root `Config` struct
+3. Parse it in `internal/config/load.go`
+4. Create `internal/foo/foo.go` with `GenerateConfig`, `WriteManaged`, `Uninit`
+5. Add cobra sub-commands `foo init`, `foo show`, `foo uninit` in `cmd/dots/commands.go`
+6. Wire into `apply` orchestration in `cmd/dots/commands.go` (`newApplyCmd`)
+7. Add doctor checks in `runDoctor()` in `cmd/dots/commands.go`
+8. Write `internal/foo/foo_test.go` with table-driven tests using `t.TempDir()`
+9. Write `adr/NNN-foo-managed.md`
 
 ## Adding a new install method
 
-1. Add method name to ToolInstall.method type annotation
-2. Add a branch in install_tool() dispatch
-3. Add to the install method reference table in the spec and docs
-4. Add test cases in tests/unit/test_tools.py
-5. Document in docs/configuration.md
+1. Add the method name to `ToolInstall.Method` in `internal/config/config.go`
+2. Add a branch in `Install()` dispatch in `internal/tools/tools.go`
+3. Add to the install method reference table in `docs/configuration.md`
+4. Add test cases in `internal/tools/tools_test.go`
+5. Document in `docs/configuration.md`
 
-## Common patterns
+## Common helpers (use these, do not reimplement)
 
-- expand(path): resolves ~ and $VAR in a path string → Path
-- run(cmd): subprocess.run with error handling and good error messages
-- idempotent_insert(path, content, marker): marker-delimited block insert/update
-- sha256_file(path): content hash for change detection
-- backup(path): copies file to path.dots-bak before overwriting
+- `fileutil.Expand(path)`: resolve `~` and `$VAR` → absolute path
+- `fileutil.Sha256File(path)`: content hash for change detection
+- `fileutil.Backup(path)`: copy to `path.dots-bak` before overwriting
+- `fileutil.EnsureParent(path)`: mkdir -p for the parent directory
+- `fileutil.CopyFile(src, dst)`: copy with parent creation
+- `shell.InsertBlock(path, content, dryRun)`: marker-delimited block insert/update
+- `shell.RemoveBlock(path, dryRun)`: remove marker-delimited block

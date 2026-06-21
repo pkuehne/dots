@@ -2,31 +2,23 @@
 
 Dotfile management, tool installation, and shell environment generation.
 Works on Linux, macOS, and Termux with zero mandatory dependencies.
+Distributed as a single static binary — no runtime required.
 
 ## Install
 
-**With pipx (recommended):**
-
-```sh
-pipx install git+https://github.com/pkuehne/dots.git
-```
-
-**Without pipx:**
+**One-liner (Linux / macOS):**
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/pkuehne/dots/refs/heads/main/install.sh | sh
 ```
 
-Or clone and install directly:
+**From source (requires Go 1.21+):**
 
 ```sh
 git clone https://github.com/pkuehne/dots.git
 cd dots
-python3 -m pip install --user .
+go build -o ~/.local/bin/dots ./cmd/dots
 ```
-
-**Requirements:** Python 3.10+. No third-party packages are required.
-Optional: `tomli` (Python < 3.11), `jinja2` (templates), `age` (secrets).
 
 ## Quick start
 
@@ -83,7 +75,7 @@ Dots uses a layered configuration model:
 Files are handled automatically by suffix:
 
 - `.age` — decrypted with [age](https://github.com/FiloSottile/age), written as a regular file
-- `.j2` — rendered as a [Jinja2](https://jinja.palletsprojects.com/) template
+- `.j2` — rendered as a Go [`text/template`](https://pkg.go.dev/text/template) (`{{ .VarName }}` syntax)
 - Everything else — symlinked
 
 ## Configuration
@@ -144,8 +136,8 @@ Install methods: `apt`, `brew`, `pkg`, `cargo`, `go`, `pip`, `pipx`,
 ```toml
 [git]
 managed = true
-user.name = "Your Name"
-user.email = "you@example.com"
+name = "Your Name"
+email = "you@example.com"
 editor = "nvim"
 ```
 
@@ -156,7 +148,7 @@ editor = "nvim"
 managed = true
 
 [[ssh.host]]
-name = "dev"
+host = "dev"
 hostname = "dev.example.com"
 user = "deploy"
 identity_file = "~/.ssh/id_ed25519"
@@ -178,7 +170,7 @@ Override any config per platform, hostname, or manual flag:
 ```toml
 [profiles.work-laptop]
 env.HTTP_PROXY = "http://proxy.corp:8080"
-git.user.email = "you@work.com"
+git.email = "you@work.com"
 
 [profiles.linux]
 shell.path = ["/snap/bin"]
@@ -236,9 +228,9 @@ All commands are idempotent. Running twice produces the same result.
 ```sh
 git clone https://github.com/pkuehne/dots.git
 cd dots
-pip install -e ".[dev]"
-pytest tests/
-ruff check src/ tests/
+just build   # or: go build -o bin/dots ./cmd/dots
+just test    # or: go test ./...
+just fmt     # or: gofmt -w .
 ```
 
 ## Roadmap

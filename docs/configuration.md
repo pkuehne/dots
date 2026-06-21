@@ -38,6 +38,10 @@ See the spec for the full annotated `dots.toml` schema. This document provides a
 | `script` | none | Raw shell command |
 | `manual` | none | Print note, skip |
 
+The `github` method installs the latest release by default. Pin a release with
+`version = "1.2.3"` — the tag is matched as given, falling back to a `v` prefix
+(`v1.2.3`).
+
 ## Asset Pattern Tokens
 
 | Token | Values |

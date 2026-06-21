@@ -1,5 +1,18 @@
 # Migration Guide
 
+## From the Python version of dots
+
+The Go rewrite is config-compatible — `dots.toml`, `files/`, `files.d/`, and
+`shell/` work unchanged. Two behavioral differences:
+
+1. The custom snippet generated from `files/.zshrc` is now `099-custom.sh`
+   (sourced last) instead of `000-custom.sh` (sourced first). Run
+   `dots apply` then `dots shell clean` to regenerate and remove the
+   Python-era `000-custom.sh`.
+2. `.j2` templates are not supported — those entries are skipped with a
+   visible message. Use `.age` secrets or platform scoping (`files.d/`)
+   instead.
+
 ## From manual dotfiles (no tool)
 
 1. `dots init ~/dotfiles`
@@ -13,7 +26,7 @@ Or use the automated scanner: `dots migrate --write`
 ## From chezmoi
 
 1. Create `files/` and copy your chezmoi source files (strip `dot_` prefixes, `private_` prefixes)
-2. Rename `.tmpl` → `.j2` and update template syntax (chezmoi uses Go templates, dots uses Jinja2)
+2. Templates are not supported — replace `.tmpl` files with plain files, platform-scoped variants in `files.d/{platform}/`, or `.age` secrets
 3. Move platform-specific files to `files.d/{platform}/`
 4. Create `dots.toml` with `[env]`, `[shell]`, etc. as needed
 
