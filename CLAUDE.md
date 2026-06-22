@@ -60,7 +60,10 @@ internal/tools/    Check, Install, Filter + GitHub release download — implemen
 ## Key invariants
 
 1. dots binary lives at cmd/dots/main.go. Entry: cobra root command.
-2. No mandatory third-party imports beyond cobra and BurntSushi/toml.
+2. Keep the dependency set small and deliberate. A statically linked Go binary
+   hides its deps from the user, so prefer real, maintained packages over
+   hand-rolled reimplementations — just add them with intent, not reflexively.
+   Current core deps: cobra, BurntSushi/toml, fatih/color.
 3. Every user-facing operation is idempotent. Running twice = same result.
 4. File deployment never writes outside ~. No /etc, no /usr. (Tool install
    methods — apt/brew/pkg — install system packages by design and may use
