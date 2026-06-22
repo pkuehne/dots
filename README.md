@@ -75,8 +75,7 @@ Dots uses a layered configuration model:
 Files are handled automatically by suffix:
 
 - `.age` — decrypted with [age](https://github.com/FiloSottile/age), written as a regular file
-- `.j2` — rendered as a Go [`text/template`](https://pkg.go.dev/text/template) (`{{ .VarName }}` syntax)
-- Everything else — symlinked
+- Everything else — symlinked verbatim (no suffix is special-cased beyond `.age`)
 
 ## Configuration
 

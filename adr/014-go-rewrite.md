@@ -4,6 +4,10 @@
 
 Accepted (supersedes ADR 001, ADR 011, ADR 012)
 
+> **Note:** The `.j2` templating plan described in the migration note below was never
+> implemented and has since been abandoned — see [ADR 015](015-drop-templating.md).
+> `.j2` files are now opaque and deploy verbatim.
+
 ## Context
 
 dots grew from a single Python file (ADR 001) to a pip-installable package (ADR 011) with a Python 3.10+ minimum (ADR 012). The Python implementation worked well but carried inherent limitations:

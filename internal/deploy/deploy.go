@@ -38,12 +38,6 @@ type Result struct {
 
 // Apply deploys a single FileEntry and returns the result.
 func Apply(entry config.FileEntry, opts Options) Result {
-	// Templates (.j2) are not supported in the Go version — there is no Jinja2
-	// renderer. Skip them, but make the reason visible.
-	if entry.Template {
-		return Result{Entry: entry, Action: "skipped (template — not supported)"}
-	}
-
 	// Profile filter.
 	if entry.Profile != "" && entry.Profile != opts.ActiveProfile {
 		return Result{Entry: entry, Action: "skipped"}
@@ -148,9 +142,6 @@ func ApplyAll(entries []config.FileEntry, opts Options) []Result {
 // Status returns the current deployment state of an entry without modifying
 // anything.
 func Status(entry config.FileEntry, opts Options) Result {
-	if entry.Template {
-		return Result{Entry: entry, Action: "skipped (template — not supported)"}
-	}
 	if entry.Secret {
 		// Reporting real status would require decrypting (and thus age); report
 		// it as a secret (apply performs the decryption) so it stays visible

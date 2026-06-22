@@ -40,12 +40,6 @@ chmod 700 ~/.ssh
 chmod 600 ~/.ssh/*
 ```
 
-## Template variable undefined
-
-Dots renders `.j2` files with Go's `text/template`. Variables come from `[vars]` in `dots.toml` and the platform context (`Platform`, `Arch`, `Hostname`). Use `{{ .VarName }}` syntax.
-
-Check available variables with `dots env show`. Add missing vars to `[vars]` in dots.toml.
-
 ## age not found
 
 Install age: `dots tools install age` or download from https://github.com/FiloSottile/age/releases

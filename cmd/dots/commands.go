@@ -376,8 +376,8 @@ func printResults(results []deploy.Result, dryRun, summary bool) int {
 			counts["error"]++
 			continue
 		}
-		// All skip variants (plain, template, platform/profile) roll up into a
-		// single "skipped" tally so the summary count is accurate.
+		// All skip variants (plain, platform/profile) roll up into a single
+		// "skipped" tally so the summary count is accurate.
 		if strings.HasPrefix(r.Action, "skipped") {
 			counts["skipped"]++
 		} else {

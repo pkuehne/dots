@@ -41,7 +41,7 @@ func TestStyleFor(t *testing.T) {
 		{"unchanged", "unchanged", ""},
 		{"missing", "missing", ""},
 		{"skipped", "skipped", ""},
-		{"skipped (template — not supported)", "skipped (template — not supported)", ""},
+		{"skipped (profile)", "skipped (profile)", ""},
 	}
 	for _, tc := range tests {
 		st := styleFor(tc.action)

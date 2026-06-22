@@ -21,8 +21,8 @@ import (
 //     and override a same-destination files/ entry (later tag wins)
 //   - explicit [[file]] entries whose src matches override everything
 //
-// Files ending in .age or .j2 are detected and flagged, but left to deploy to
-// handle (or skip).
+// Files ending in .age are detected as secrets and flagged, but left to deploy
+// to handle. All other files (including .j2) are treated as opaque content.
 func Walk(cfg config.Config, platforms []string) ([]config.FileEntry, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -111,13 +111,9 @@ func walkDir(dir, baseDir, repoRoot, home string, only []string) ([]config.FileE
 			Dst:  dst,
 			Only: only,
 		}
-		switch {
-		case strings.HasSuffix(name, ".age"):
+		if strings.HasSuffix(name, ".age") {
 			entry.Secret = true
 			entry.Dst = strings.TrimSuffix(dst, ".age")
-		case strings.HasSuffix(name, ".j2"):
-			entry.Template = true
-			entry.Dst = strings.TrimSuffix(dst, ".j2")
 		}
 		result = append(result, entry)
 	}

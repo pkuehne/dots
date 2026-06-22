@@ -69,7 +69,7 @@ func styleFor(action string) actionStyle {
 	case action == "missing":
 		return actionStyle{"⚠", "missing", cYellow, ""}
 	case strings.HasPrefix(action, "skipped"):
-		// Preserve the full reason (e.g. "skipped (template — not supported)").
+		// Preserve the full reason if one is attached (e.g. profile/platform).
 		return actionStyle{"⊘", action, cDim, ""}
 	default:
 		return actionStyle{"•", action, "", ""}

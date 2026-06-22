@@ -826,7 +826,9 @@ func TestWriteSnippetsWarnsOnOutOfRangePrefix(t *testing.T) {
 	}
 }
 
-func TestWriteSnippetsSkipsTemplates(t *testing.T) {
+// A .j2 snippet has no special meaning — it is copied verbatim like any other
+// user snippet (the bootstrapper only sources *.sh/.zsh/.bash, so it stays inert).
+func TestWriteSnippetsDeploysJ2Verbatim(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	dir := t.TempDir()
 	repo := makeUserSnippetRepo(t, map[string]string{"040-tmpl.sh.j2": "{{ var }}\n"})
@@ -836,18 +838,15 @@ func TestWriteSnippetsSkipsTemplates(t *testing.T) {
 		RepoRoot: repo,
 	}
 
-	out := captureStdout(t, func() {
-		if err := WriteSnippets(cfg, false); err != nil {
-			t.Error(err)
-		}
-	})
-	if !strings.Contains(out, "skipped 040-tmpl.sh.j2 (template — not supported)") {
-		t.Errorf("expected visible template skip, got:\n%s", out)
+	if err := WriteSnippets(cfg, false); err != nil {
+		t.Error(err)
 	}
-	for _, name := range []string{"040-tmpl.sh.j2", "040-tmpl.sh"} {
-		if _, err := os.Stat(filepath.Join(dir, name)); !os.IsNotExist(err) {
-			t.Errorf("%s must not be deployed", name)
-		}
+	got, err := os.ReadFile(filepath.Join(dir, "040-tmpl.sh.j2"))
+	if err != nil {
+		t.Fatalf("snippet not deployed: %v", err)
+	}
+	if string(got) != "{{ var }}\n" {
+		t.Errorf("content: got %q, want verbatim %q", got, "{{ var }}\n")
 	}
 }
 

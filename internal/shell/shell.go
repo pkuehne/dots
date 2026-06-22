@@ -233,7 +233,6 @@ var userSnippetPrefixRe = regexp.MustCompile(`^(\d+)`)
 // deployUserSnippets copies user snippet files from <repoRoot>/shell/ into
 // dir, warning when a numeric prefix falls outside the ranges reserved for
 // user snippets (030-049, 080-089, 090+; generated snippets own the rest).
-// .j2 templates are not supported in the Go version and are skipped visibly.
 func deployUserSnippets(cfg config.Config, dir string, dryRun bool) error {
 	names, err := userSnippetFiles(cfg.RepoRoot)
 	if err != nil {
@@ -249,10 +248,6 @@ func deployUserSnippets(cfg config.Config, dir string, dryRun bool) error {
 				fmt.Printf("  ⚠ Warning: %s has prefix %d outside expected ranges "+
 					"(030-049, 080-089, 090+)\n", name, prefix)
 			}
-		}
-		if strings.HasSuffix(name, ".j2") {
-			fmt.Printf("  skipped %s (template — not supported)\n", name)
-			continue
 		}
 		src := filepath.Join(cfg.RepoRoot, "shell", name)
 		content, err := os.ReadFile(src)
