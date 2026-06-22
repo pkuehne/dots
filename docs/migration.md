@@ -9,9 +9,10 @@ The Go rewrite is config-compatible — `dots.toml`, `files/`, `files.d/`, and
    (sourced last) instead of `000-custom.sh` (sourced first). Run
    `dots apply` then `dots shell clean` to regenerate and remove the
    Python-era `000-custom.sh`.
-2. `.j2` templates are not supported — those entries are skipped with a
-   visible message. Use `.age` secrets or platform scoping (`files.d/`)
-   instead.
+2. Templating is not supported. A `.j2` file is no longer special-cased — it
+   deploys verbatim (suffix and all), so unrendered `{{ }}` placeholders would
+   ship as-is. Render templates ahead of time, or use `.age` secrets or
+   platform scoping (`files.d/`) instead.
 
 ## From manual dotfiles (no tool)
 

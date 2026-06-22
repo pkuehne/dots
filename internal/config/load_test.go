@@ -151,7 +151,6 @@ dst = "~/.gitconfig"
 [[file]]
 src = "files/.zshrc"
 dst = "~/.zshrc"
-template = true
 `)
 	cfg, err := config.Load(dir, "")
 	if err != nil {
@@ -160,8 +159,8 @@ template = true
 	if len(cfg.Files) != 2 {
 		t.Fatalf("files: got %d, want 2", len(cfg.Files))
 	}
-	if cfg.Files[1].Template != true {
-		t.Errorf("files[1].template: got false, want true")
+	if cfg.Files[1].Src != "files/.zshrc" || cfg.Files[1].Dst != "~/.zshrc" {
+		t.Errorf("files[1]: got src=%q dst=%q", cfg.Files[1].Src, cfg.Files[1].Dst)
 	}
 }
 

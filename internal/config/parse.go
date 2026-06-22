@@ -297,13 +297,12 @@ func parseFileEntry(raw map[string]any) (FileEntry, error) {
 		)
 	}
 	fe := FileEntry{
-		Src:      src,
-		Dst:      dst,
-		Only:     strSlice(raw, "only"),
-		Profile:  str(raw, "profile", ""),
-		Template: boolean(raw, "template", false),
-		Secret:   boolean(raw, "secret", false),
-		Mode:     str(raw, "mode", ""),
+		Src:     src,
+		Dst:     dst,
+		Only:    strSlice(raw, "only"),
+		Profile: str(raw, "profile", ""),
+		Secret:  boolean(raw, "secret", false),
+		Mode:    str(raw, "mode", ""),
 	}
 	if v, ok := raw["link"].(bool); ok {
 		fe.Link = &v

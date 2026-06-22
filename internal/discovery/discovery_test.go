@@ -54,8 +54,8 @@ func TestWalk_SimpleFile(t *testing.T) {
 	if e.Dst != filepath.Join(home, ".gitconfig") {
 		t.Errorf("dst: got %q, want %q", e.Dst, filepath.Join(home, ".gitconfig"))
 	}
-	if e.Template || e.Secret {
-		t.Errorf("unexpected template/secret flags")
+	if e.Secret {
+		t.Errorf("unexpected secret flag")
 	}
 }
 
@@ -121,10 +121,12 @@ func TestWalk_AgeFileFlagged(t *testing.T) {
 	}
 }
 
-func TestWalk_J2FileFlagged(t *testing.T) {
+// .j2 files carry no special meaning: they are deployed verbatim like any other
+// opaque file, suffix and all.
+func TestWalk_J2FileTreatedAsOpaque(t *testing.T) {
 	home, _ := os.UserHomeDir()
 	cfg := makeRepo(t, map[string]string{
-		"files/.gitconfig.j2": "template",
+		"files/.gitconfig.j2": "literal content",
 	})
 	entries, err := discovery.Walk(cfg, []string{"linux"})
 	if err != nil {
@@ -134,11 +136,8 @@ func TestWalk_J2FileFlagged(t *testing.T) {
 		t.Fatalf("got %d entries, want 1", len(entries))
 	}
 	e := entries[0]
-	if !e.Template {
-		t.Errorf("expected Template=true for .j2 file")
-	}
-	if e.Dst != filepath.Join(home, ".gitconfig") {
-		t.Errorf("dst should strip .j2: got %q", e.Dst)
+	if e.Dst != filepath.Join(home, ".gitconfig.j2") {
+		t.Errorf("dst should keep .j2 suffix verbatim: got %q", e.Dst)
 	}
 }
 

@@ -336,19 +336,25 @@ func TestStatus_RegularFileWantedSymlink(t *testing.T) {
 	}
 }
 
-func TestApply_SkipsTemplate(t *testing.T) {
-	_, opts := makeRepo(t, map[string]string{"files/.gitconfig.j2": "template"})
-	dst := homeDst(t, opts, ".gitconfig")
-	e := entry("files/.gitconfig.j2", dst)
-	e.Template = true
+// A .j2 file has no special meaning — it is deployed verbatim like any other
+// opaque file.
+func TestApply_J2DeployedVerbatim(t *testing.T) {
+	root, opts := makeRepo(t, map[string]string{"files/.gitconfig.j2": "{{ var }}"})
+	dst := homeDst(t, opts, ".gitconfig.j2")
 
-	r := deploy.Apply(e, opts)
-	if r.Action != "skipped (template — not supported)" {
-		t.Errorf("action: got %q, want template-skip", r.Action)
+	r := deploy.Apply(entry("files/.gitconfig.j2", dst), opts)
+	if r.Err != nil {
+		t.Fatalf("unexpected error: %v", r.Err)
 	}
-	// Templates must never be materialised.
-	if _, err := os.Lstat(dst); err == nil {
-		t.Errorf("template must not be written")
+	if r.Action != "linked" {
+		t.Errorf("action: got %q, want %q", r.Action, "linked")
+	}
+	target, err := os.Readlink(dst)
+	if err != nil {
+		t.Fatalf("dst is not a symlink: %v", err)
+	}
+	if target != filepath.Join(root, "files/.gitconfig.j2") {
+		t.Errorf("symlink target: got %q", target)
 	}
 }
 

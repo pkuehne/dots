@@ -7,7 +7,6 @@ See the spec for the full annotated `dots.toml` schema. This document provides a
 | Section | Purpose |
 |---------|---------|
 | `[meta]` | Schema version, default deploy mode |
-| `[vars]` | Template variables (available in .j2 files) |
 | `[profiles.*]` | Per-platform/hostname/manual overrides |
 | `[env]` | Shell environment variables |
 | `[[env.when]]` | Conditional env vars (platform/tool guards) |

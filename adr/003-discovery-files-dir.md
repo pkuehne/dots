@@ -1,5 +1,8 @@
 # ADR 003: Discovery from files/ Directory
 
+> **Note:** The `.j2` rendering mentioned below was dropped in [ADR 015](015-drop-templating.md);
+> `.j2` files are now treated as opaque and symlinked verbatim. Only `.age` decryption remains.
+
 ## Context
 Most dotfiles are simple files that should be symlinked to `~` with no configuration needed.
 

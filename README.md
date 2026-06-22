@@ -75,8 +75,7 @@ Dots uses a layered configuration model:
 Files are handled automatically by suffix:
 
 - `.age` — decrypted with [age](https://github.com/FiloSottile/age), written as a regular file
-- `.j2` — rendered as a Go [`text/template`](https://pkg.go.dev/text/template) (`{{ .VarName }}` syntax)
-- Everything else — symlinked
+- Everything else — symlinked verbatim (no suffix is special-cased beyond `.age`)
 
 ## Configuration
 
@@ -193,6 +192,7 @@ Files ending in `.age` under `files/` are decrypted automatically during apply.
 | `dots init [dir]` | Scaffold a new dots repository |
 | `dots apply` | Deploy files, generate configs, clone repos |
 | `dots apply --dry-run` | Preview without making changes |
+| `dots apply --summary` | Deploy, printing only the summary line (no per-file status) |
 | `dots status` | Show deployment state |
 | `dots diff [file]` | Show diffs between source and deployed |
 | `dots edit <file>` | Open a managed file in your editor |

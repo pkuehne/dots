@@ -73,21 +73,22 @@ func runInit(dir string) error {
 // ── apply / preview ──────────────────────────────────────────────────────────
 
 func newApplyCmd() *cobra.Command {
-	var dryRun, forceCopy bool
+	var dryRun, forceCopy, summary bool
 
 	cmd := &cobra.Command{
 		Use:   "apply [files...]",
 		Short: "Deploy files and generate managed configs",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runApply(globals.cfg, args, dryRun, forceCopy)
+			return runApply(globals.cfg, args, dryRun, forceCopy, summary)
 		},
 	}
 	cmd.Flags().BoolVarP(&dryRun, "dry-run", "n", false, "print actions without executing")
 	cmd.Flags().BoolVarP(&forceCopy, "copy", "c", false, "force copy mode instead of symlink")
+	cmd.Flags().BoolVarP(&summary, "summary", "s", false, "print only the summary line, not per-file status")
 	return cmd
 }
 
-func runApply(cfg config.Config, fileArgs []string, dryRun, forceCopy bool) error {
+func runApply(cfg config.Config, fileArgs []string, dryRun, forceCopy, summary bool) error {
 	filesOnly := len(fileArgs) > 0
 
 	opts := deploy.Options{
@@ -139,7 +140,7 @@ func runApply(cfg config.Config, fileArgs []string, dryRun, forceCopy bool) erro
 	}
 
 	results := deploy.ApplyAll(entries, opts)
-	if n := printResults(results, dryRun); n > 0 {
+	if n := printResults(results, dryRun, summary); n > 0 {
 		return errs.New(
 			fmt.Sprintf("%d file(s) failed to deploy", n),
 			"See errors above.",
@@ -365,29 +366,35 @@ func applyLoginShell(cfg config.Config, dryRun bool) error {
 	return nil
 }
 
-func printResults(results []deploy.Result, dryRun bool) int {
+func printResults(results []deploy.Result, dryRun, summary bool) int {
 	counts := map[string]int{}
 	for _, r := range results {
 		if r.Err != nil {
-			fmt.Fprintf(os.Stderr, "  error  %s: %v\n", r.Entry.Dst, r.Err)
+			// Errors always surface, even in summary mode.
+			fmt.Fprintf(os.Stderr, "  %s  %s: %v\n",
+				colorize(cRed, "✗ error"), r.Entry.Dst, r.Err)
 			counts["error"]++
 			continue
 		}
-		// All skip variants (plain, template, platform/profile) roll up into a
-		// single "skipped" tally so the summary count is accurate.
+		// All skip variants (plain, platform/profile) roll up into a single
+		// "skipped" tally so the summary count is accurate.
 		if strings.HasPrefix(r.Action, "skipped") {
 			counts["skipped"]++
 		} else {
 			counts[r.Action]++
 		}
-		if strings.HasPrefix(r.Action, "skipped") || r.Action == "unchanged" {
+		if summary {
 			continue
 		}
-		verb := r.Action
-		if dryRun && !strings.HasPrefix(r.Action, "skipped") {
-			verb = "would " + verb
+		st := styleFor(r.Action)
+		label := st.label
+		if dryRun && st.verb != "" {
+			label = "would " + st.verb
 		}
-		fmt.Printf("%9s  %s\n", verb, r.Entry.Dst)
+		fmt.Printf("  %s %s  %s\n",
+			colorize(st.color, st.icon),
+			colorize(st.color, fmt.Sprintf("%-16s", label)),
+			r.Entry.Dst)
 	}
 	fmt.Printf("\n%d linked, %d copied, %d unchanged, %d skipped",
 		counts["linked"]+counts["link"],
@@ -409,13 +416,16 @@ func printResults(results []deploy.Result, dryRun bool) int {
 }
 
 func newPreviewCmd() *cobra.Command {
-	return &cobra.Command{
+	var summary bool
+	cmd := &cobra.Command{
 		Use:   "preview [files...]",
 		Short: "Alias for apply --dry-run",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runApply(globals.cfg, args, true, false)
+			return runApply(globals.cfg, args, true, false, summary)
 		},
 	}
+	cmd.Flags().BoolVarP(&summary, "summary", "s", false, "print only the summary line, not per-file status")
+	return cmd
 }
 
 // ── status / diff / list ─────────────────────────────────────────────────────

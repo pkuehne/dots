@@ -104,14 +104,13 @@ type Tool struct {
 
 // FileEntry holds one [[file]] entry.
 type FileEntry struct {
-	Src      string   `toml:"src"`
-	Dst      string   `toml:"dst"`
-	Only     []string `toml:"only"`
-	Profile  string   `toml:"profile"`
-	Template bool     `toml:"template"`
-	Secret   bool     `toml:"secret"`
-	Mode     string   `toml:"mode"`
-	Link     *bool    `toml:"link"` // nil means "use default_mode"
+	Src     string   `toml:"src"`
+	Dst     string   `toml:"dst"`
+	Only    []string `toml:"only"`
+	Profile string   `toml:"profile"`
+	Secret  bool     `toml:"secret"`
+	Mode    string   `toml:"mode"`
+	Link    *bool    `toml:"link"` // nil means "use default_mode"
 }
 
 // RepoEntry holds one [[repo]] entry.
@@ -158,7 +157,6 @@ type PresetsConfig struct {
 // Config is the fully parsed and profile-merged dots.toml.
 type Config struct {
 	Meta          MetaConfig
-	Vars          map[string]any
 	Profiles      map[string]any
 	Env           EnvConfig
 	Shell         ShellConfig
@@ -187,7 +185,6 @@ func defaults() Config {
 		Git:         GitConfig{DefaultBranch: "main"},
 		ToolsConfig: ToolsConfig{BinDir: "~/.local/bin"},
 		Secrets:     SecretsConfig{Identity: "~/.config/dots/key.txt"},
-		Vars:        make(map[string]any),
 		Profiles:    make(map[string]any),
 		Env:         EnvConfig{Vars: make(map[string]string)},
 	}
@@ -227,9 +224,6 @@ func Load(repoRoot, profile string) (Config, error) {
 				cfg.Meta.Version, supportedSchemaVersion),
 			"Upgrade dots, or lower [meta] version in dots.toml.",
 		)
-	}
-	if v, ok := merged["vars"].(map[string]any); ok {
-		cfg.Vars = v
 	}
 	if p, ok := raw["profiles"].(map[string]any); ok {
 		cfg.Profiles = p

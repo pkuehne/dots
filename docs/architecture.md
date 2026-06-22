@@ -31,8 +31,7 @@ No `dots.toml` required. `dots apply` discovers all files under `files/` and `fi
 
 Auto-detection rules (first match wins):
 - `.age` suffix → secret; decrypt with age, write plaintext (copy mode, `0600`)
-- `.j2` suffix → template; **not supported in the Go version** (no Jinja2/`text/template` renderer) — these entries are skipped with a visible message
-- Everything else → symlink
+- Everything else → symlink (the `.j2` suffix carries no special meaning; such files deploy verbatim like any other file)
 
 ### Level 1 — dots.toml: Additive Overrides
 Discovery still runs for all files not explicitly listed. `[[file]]` entries override or extend: destination path, `only`/`profile` guards, permissions, copy vs symlink.
