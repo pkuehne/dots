@@ -63,7 +63,8 @@ internal/tools/    Check, Install, Filter + GitHub release download — implemen
 2. Keep the dependency set small and deliberate. A statically linked Go binary
    hides its deps from the user, so prefer real, maintained packages over
    hand-rolled reimplementations — just add them with intent, not reflexively.
-   Current core deps: cobra, BurntSushi/toml, fatih/color, filippo.io/age.
+   Current core deps: cobra, BurntSushi/toml, fatih/color, filippo.io/age,
+   mholt/archives.
 3. Every user-facing operation is idempotent. Running twice = same result.
 4. File deployment never writes outside ~. No /etc, no /usr. (Tool install
    methods — apt/brew/pkg — install system packages by design and may use

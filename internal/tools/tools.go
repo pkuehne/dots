@@ -3,12 +3,12 @@
 package tools
 
 import (
-	"archive/tar"
-	"archive/zip"
-	"compress/gzip"
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"net/http"
 	"os"
 	"os/exec"
@@ -17,6 +17,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mholt/archives"
 	"github.com/pkuehne/dots/internal/config"
 	"github.com/pkuehne/dots/internal/errs"
 	"github.com/pkuehne/dots/internal/fileutil"
@@ -471,36 +472,53 @@ func installGitHub(tool config.Tool, inst config.ToolInstall, binDir string) err
 	}
 	dest := filepath.Join(binDir, binaryName)
 
-	name := matched.Name
-	switch {
-	case strings.HasSuffix(name, ".tar.gz") || strings.HasSuffix(name, ".tgz"):
+	if isExtractableArchive(matched.Name) {
 		extractDir := filepath.Join(tmpDir, "extracted")
-		if err := safeTarExtractAll(downloadPath, extractDir); err != nil {
+		if err := extractArchive(downloadPath, extractDir); err != nil {
 			return err
 		}
 		return findAndInstallBinary(extractDir, binaryName, dest, inst.BinaryPath)
-	case strings.HasSuffix(name, ".zip"):
-		extractDir := filepath.Join(tmpDir, "extracted")
-		if err := safeZipExtractAll(downloadPath, extractDir); err != nil {
-			return err
-		}
-		return findAndInstallBinary(extractDir, binaryName, dest, inst.BinaryPath)
-	case strings.HasSuffix(name, ".tar.xz") || strings.HasSuffix(name, ".tar.bz2") || strings.HasSuffix(name, ".tar.zst"):
-		return errs.NewTool(
-			fmt.Sprintf("unsupported archive format for asset %q", name),
-			"Use the 'asset' field to select a .tar.gz or .zip asset.",
-		)
-	default:
-		return installBinaryFile(downloadPath, dest)
 	}
+	return installBinaryFile(downloadPath, dest)
 }
 
 // ── Archive extraction ────────────────────────────────────────────────────────
 
 const (
 	traversalHint = "The archive contains a path traversal entry. This may be a malicious archive."
-	symlinkHint   = "The archive contains an absolute symlink. This may be a malicious archive."
+	symlinkHint   = "The archive contains a symlink pointing outside the archive. This may be a malicious archive."
 )
+
+// archiveExtensions lists the suffixes dots will route to extractArchive. The
+// mholt/archives library can decompress all of these uniformly; anything else
+// (a bare binary, a lone .gz, …) is installed verbatim.
+var archiveExtensions = []string{
+	".tar.gz", ".tgz",
+	".tar.bz2", ".tbz", ".tbz2",
+	".tar.xz", ".txz",
+	".tar.zst", ".tzst",
+	".tar",
+	".zip",
+}
+
+// isExtractableArchive reports whether name has a suffix dots knows how to
+// extract a binary from.
+func isExtractableArchive(name string) bool {
+	lower := strings.ToLower(name)
+	for _, ext := range archiveExtensions {
+		if strings.HasSuffix(lower, ext) {
+			return true
+		}
+	}
+	return false
+}
+
+// containedIn reports whether p is dest itself or a path nested within dest.
+// Both are cleaned, so it is robust against "." and trailing-separator noise.
+func containedIn(dest, p string) bool {
+	clean := filepath.Clean(dest)
+	return p == clean || strings.HasPrefix(p, clean+string(os.PathSeparator))
+}
 
 // sanitizeArchivePath joins an archive entry name onto dest and verifies the
 // resolved path stays within dest, returning the validated member path. It
@@ -509,7 +527,7 @@ const (
 // than a boolean) keeps the taint flow from check to use explicit.
 func sanitizeArchivePath(dest, name string) (string, error) {
 	memberPath := filepath.Join(dest, filepath.FromSlash(name))
-	if !strings.HasPrefix(memberPath, filepath.Clean(dest)+string(os.PathSeparator)) {
+	if !containedIn(dest, memberPath) {
 		return "", errs.NewTool(
 			fmt.Sprintf("refusing to extract %q — path escapes target", name),
 			traversalHint,
@@ -518,118 +536,121 @@ func sanitizeArchivePath(dest, name string) (string, error) {
 	return memberPath, nil
 }
 
-// safeTarExtractAll extracts a .tar.gz archive into dest, rejecting any entry
-// whose resolved path escapes dest or that contains an absolute symlink target.
-func safeTarExtractAll(archivePath, dest string) error {
+// extractArchive extracts the archive at archivePath into dest using the
+// mholt/archives library, which handles tar.gz, tar.bz2, tar.xz, tar.zst, tar
+// and zip uniformly. Directories, regular files and symlinks are materialised;
+// every entry's path is checked to stay within dest, and symlinks are rejected
+// if their target escapes dest.
+func extractArchive(archivePath, dest string) error {
 	f, err := os.Open(archivePath)
 	if err != nil {
 		return errs.NewTool(fmt.Sprintf("cannot open archive %s", archivePath), err.Error())
 	}
 	defer f.Close()
 
-	gr, err := gzip.NewReader(f)
+	ctx := context.Background()
+	format, stream, err := archives.Identify(ctx, filepath.Base(archivePath), f)
 	if err != nil {
-		return errs.NewTool("cannot decompress archive", err.Error())
+		return errs.NewTool(fmt.Sprintf("cannot identify archive format of %s", archivePath), err.Error())
 	}
-	defer gr.Close()
-
-	tr := tar.NewReader(gr)
+	extractor, ok := format.(archives.Extractor)
+	if !ok {
+		return errs.NewTool(
+			fmt.Sprintf("asset %q is not an extractable archive", filepath.Base(archivePath)),
+			"Use the 'asset' field to select a supported archive (.tar.gz, .tar.xz, .tar.bz2, .tar.zst, .zip).",
+		)
+	}
 
 	if err := os.MkdirAll(dest, 0o755); err != nil {
 		return errs.NewTool("cannot create extraction directory", err.Error())
 	}
 
-	for {
-		hdr, err := tr.Next()
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			return errs.NewTool("failed to read tar archive", err.Error())
-		}
-
-		memberPath, err := sanitizeArchivePath(dest, hdr.Name)
+	handler := func(ctx context.Context, info archives.FileInfo) error {
+		memberPath, err := sanitizeArchivePath(dest, info.NameInArchive)
 		if err != nil {
 			return err
 		}
 
-		if hdr.Typeflag == tar.TypeSymlink || hdr.Typeflag == tar.TypeLink {
-			if filepath.IsAbs(hdr.Linkname) {
-				return errs.NewTool(
-					fmt.Sprintf("refusing to extract symlink %q → %q — absolute target", hdr.Name, hdr.Linkname),
-					symlinkHint,
-				)
-			}
-		}
-
-		switch hdr.Typeflag {
-		case tar.TypeDir:
+		switch {
+		case info.IsDir():
 			if err := os.MkdirAll(memberPath, 0o755); err != nil {
 				return errs.NewTool("cannot create directory from archive", err.Error())
 			}
-		case tar.TypeReg:
-			if err := os.MkdirAll(filepath.Dir(memberPath), 0o755); err != nil {
-				return errs.NewTool("cannot create parent directory", err.Error())
-			}
-			out, err := os.OpenFile(memberPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, hdr.FileInfo().Mode())
-			if err != nil {
-				return errs.NewTool("cannot create extracted file", err.Error())
-			}
-			_, copyErr := io.Copy(out, tr)
-			out.Close()
-			if copyErr != nil {
-				return errs.NewTool("cannot write extracted file", copyErr.Error())
-			}
+			return nil
+
+		case info.Mode()&fs.ModeSymlink != 0:
+			return extractSymlink(dest, memberPath, info)
+
+		default:
+			return extractRegularFile(memberPath, info)
 		}
+	}
+
+	if err := extractor.Extract(ctx, stream, handler); err != nil {
+		// errs raised inside the handler already carry a hint; pass them
+		// through unchanged rather than wrapping them again (the library may
+		// wrap the handler error, so unwrap with errors.As).
+		var te *errs.ToolInstallError
+		if errors.As(err, &te) {
+			return te
+		}
+		return errs.NewTool(fmt.Sprintf("failed to extract archive %s", filepath.Base(archivePath)), err.Error())
 	}
 	return nil
 }
 
-// safeZipExtractAll extracts a .zip archive into dest, rejecting any entry
-// whose resolved path escapes dest.
-func safeZipExtractAll(archivePath, dest string) error {
-	r, err := zip.OpenReader(archivePath)
+// extractSymlink materialises an in-archive symlink at memberPath, rejecting
+// targets that resolve outside dest.
+func extractSymlink(dest, memberPath string, info archives.FileInfo) error {
+	target := info.LinkTarget
+	if filepath.IsAbs(target) {
+		return errs.NewTool(
+			fmt.Sprintf("refusing to extract symlink %q → %q — absolute target", info.NameInArchive, target),
+			symlinkHint,
+		)
+	}
+	// Resolve the target relative to the link's own directory and ensure it
+	// stays within dest.
+	resolved := filepath.Join(filepath.Dir(memberPath), filepath.FromSlash(target))
+	if !containedIn(dest, resolved) {
+		return errs.NewTool(
+			fmt.Sprintf("refusing to extract symlink %q → %q — target escapes target directory", info.NameInArchive, target),
+			symlinkHint,
+		)
+	}
+	if err := os.MkdirAll(filepath.Dir(memberPath), 0o755); err != nil {
+		return errs.NewTool("cannot create parent directory", err.Error())
+	}
+	// Replace any existing entry so extraction is idempotent.
+	_ = os.Remove(memberPath)
+	if err := os.Symlink(target, memberPath); err != nil {
+		return errs.NewTool("cannot create symlink from archive", err.Error())
+	}
+	return nil
+}
+
+// extractRegularFile writes an in-archive regular file to memberPath.
+func extractRegularFile(memberPath string, info archives.FileInfo) error {
+	if err := os.MkdirAll(filepath.Dir(memberPath), 0o755); err != nil {
+		return errs.NewTool("cannot create parent directory", err.Error())
+	}
+	rc, err := info.Open()
 	if err != nil {
-		return errs.NewTool(fmt.Sprintf("cannot open zip archive %s", archivePath), err.Error())
+		return errs.NewTool("cannot read archive entry", err.Error())
 	}
-	defer r.Close()
+	defer rc.Close()
 
-	if err := os.MkdirAll(dest, 0o755); err != nil {
-		return errs.NewTool("cannot create extraction directory", err.Error())
+	out, err := os.OpenFile(memberPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, info.Mode().Perm())
+	if err != nil {
+		return errs.NewTool("cannot create extracted file", err.Error())
 	}
-
-	for _, f := range r.File {
-		memberPath, err := sanitizeArchivePath(dest, f.Name)
-		if err != nil {
-			return err
-		}
-
-		if f.FileInfo().IsDir() {
-			if err := os.MkdirAll(memberPath, 0o755); err != nil {
-				return errs.NewTool("cannot create directory from archive", err.Error())
-			}
-			continue
-		}
-
-		if err := os.MkdirAll(filepath.Dir(memberPath), 0o755); err != nil {
-			return errs.NewTool("cannot create parent directory", err.Error())
-		}
-
-		out, err := os.OpenFile(memberPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, f.Mode())
-		if err != nil {
-			return errs.NewTool("cannot create extracted file", err.Error())
-		}
-		rc, err := f.Open()
-		if err != nil {
-			out.Close()
-			return errs.NewTool("cannot read from zip entry", err.Error())
-		}
-		_, copyErr := io.Copy(out, rc)
-		out.Close()
-		rc.Close()
-		if copyErr != nil {
-			return errs.NewTool("cannot write extracted file", copyErr.Error())
-		}
+	_, copyErr := io.Copy(out, rc)
+	closeErr := out.Close()
+	if copyErr != nil {
+		return errs.NewTool("cannot write extracted file", copyErr.Error())
+	}
+	if closeErr != nil {
+		return errs.NewTool("cannot write extracted file", closeErr.Error())
 	}
 	return nil
 }
