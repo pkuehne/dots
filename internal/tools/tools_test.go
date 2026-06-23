@@ -14,6 +14,7 @@ import (
 	"testing"
 
 	"github.com/pkuehne/dots/internal/config"
+	"github.com/ulikunitz/xz"
 )
 
 // ── Filter ────────────────────────────────────────────────────────────────────
@@ -167,6 +168,44 @@ func makeTarGz(t *testing.T, entries []struct{ name, content string }, symlinks 
 	return buf.Bytes()
 }
 
+func makeTar(t *testing.T, entries []struct{ name, content string }) []byte {
+	t.Helper()
+	var buf bytes.Buffer
+	tw := tar.NewWriter(&buf)
+	for _, e := range entries {
+		hdr := &tar.Header{
+			Name:     e.name,
+			Typeflag: tar.TypeReg,
+			Size:     int64(len(e.content)),
+			Mode:     0o755,
+		}
+		if err := tw.WriteHeader(hdr); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := tw.Write([]byte(e.content)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	tw.Close()
+	return buf.Bytes()
+}
+
+func xzCompress(t *testing.T, data []byte) []byte {
+	t.Helper()
+	var buf bytes.Buffer
+	w, err := xz.NewWriter(&buf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := w.Write(data); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return buf.Bytes()
+}
+
 func makeZip(t *testing.T, entries []struct{ name, content string }) []byte {
 	t.Helper()
 	var buf bytes.Buffer
@@ -194,9 +233,9 @@ func writeTempArchive(t *testing.T, data []byte, name string) string {
 	return path
 }
 
-// ── safeTarExtractAll ─────────────────────────────────────────────────────────
+// ── extractArchive (tar) ──────────────────────────────────────────────────────
 
-func TestSafeTarExtractAll_HappyPath(t *testing.T) {
+func TestExtractArchive_TarGzHappyPath(t *testing.T) {
 	data := makeTarGz(t,
 		[]struct{ name, content string }{{"mybin", "#!/bin/sh\necho hi"}},
 		nil,
@@ -204,7 +243,7 @@ func TestSafeTarExtractAll_HappyPath(t *testing.T) {
 	archivePath := writeTempArchive(t, data, "good.tar.gz")
 	dest := t.TempDir()
 
-	if err := safeTarExtractAll(archivePath, dest); err != nil {
+	if err := extractArchive(archivePath, dest); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	got, err := os.ReadFile(filepath.Join(dest, "mybin"))
@@ -216,7 +255,7 @@ func TestSafeTarExtractAll_HappyPath(t *testing.T) {
 	}
 }
 
-func TestSafeTarExtractAll_PathTraversalRejected(t *testing.T) {
+func TestExtractArchive_PathTraversalRejected(t *testing.T) {
 	data := makeTarGz(t,
 		[]struct{ name, content string }{{"../../etc/evil", "pwned"}},
 		nil,
@@ -224,7 +263,7 @@ func TestSafeTarExtractAll_PathTraversalRejected(t *testing.T) {
 	archivePath := writeTempArchive(t, data, "evil.tar.gz")
 	dest := t.TempDir()
 
-	err := safeTarExtractAll(archivePath, dest)
+	err := extractArchive(archivePath, dest)
 	if err == nil {
 		t.Fatal("expected error for path traversal")
 	}
@@ -233,12 +272,12 @@ func TestSafeTarExtractAll_PathTraversalRejected(t *testing.T) {
 	}
 }
 
-func TestSafeTarExtractAll_AbsoluteSymlinkRejected(t *testing.T) {
+func TestExtractArchive_AbsoluteSymlinkRejected(t *testing.T) {
 	data := makeTarGz(t, nil, []struct{ name, target string }{{"link", "/etc/passwd"}})
 	archivePath := writeTempArchive(t, data, "evil.tar.gz")
 	dest := t.TempDir()
 
-	err := safeTarExtractAll(archivePath, dest)
+	err := extractArchive(archivePath, dest)
 	if err == nil {
 		t.Fatal("expected error for absolute symlink")
 	}
@@ -247,7 +286,41 @@ func TestSafeTarExtractAll_AbsoluteSymlinkRejected(t *testing.T) {
 	}
 }
 
-func TestSafeTarExtractAll_NestedDir(t *testing.T) {
+func TestExtractArchive_EscapingSymlinkRejected(t *testing.T) {
+	data := makeTarGz(t, nil, []struct{ name, target string }{{"link", "../../etc/passwd"}})
+	archivePath := writeTempArchive(t, data, "evil.tar.gz")
+	dest := t.TempDir()
+
+	err := extractArchive(archivePath, dest)
+	if err == nil {
+		t.Fatal("expected error for escaping symlink")
+	}
+	if !strings.Contains(err.Error(), "escapes target") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestExtractArchive_SymlinkExtracted(t *testing.T) {
+	data := makeTarGz(t,
+		[]struct{ name, content string }{{"real", "binary"}},
+		[]struct{ name, target string }{{"link", "real"}},
+	)
+	archivePath := writeTempArchive(t, data, "good.tar.gz")
+	dest := t.TempDir()
+
+	if err := extractArchive(archivePath, dest); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	target, err := os.Readlink(filepath.Join(dest, "link"))
+	if err != nil {
+		t.Fatalf("expected a symlink: %v", err)
+	}
+	if target != "real" {
+		t.Errorf("symlink target = %q, want %q", target, "real")
+	}
+}
+
+func TestExtractArchive_NestedDir(t *testing.T) {
 	data := makeTarGz(t,
 		[]struct{ name, content string }{{"subdir/mybin", "binary"}},
 		nil,
@@ -255,7 +328,7 @@ func TestSafeTarExtractAll_NestedDir(t *testing.T) {
 	archivePath := writeTempArchive(t, data, "nested.tar.gz")
 	dest := t.TempDir()
 
-	if err := safeTarExtractAll(archivePath, dest); err != nil {
+	if err := extractArchive(archivePath, dest); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(dest, "subdir", "mybin")); err != nil {
@@ -263,14 +336,14 @@ func TestSafeTarExtractAll_NestedDir(t *testing.T) {
 	}
 }
 
-// ── safeZipExtractAll ─────────────────────────────────────────────────────────
+// ── extractArchive (zip) ──────────────────────────────────────────────────────
 
-func TestSafeZipExtractAll_HappyPath(t *testing.T) {
+func TestExtractArchive_ZipHappyPath(t *testing.T) {
 	data := makeZip(t, []struct{ name, content string }{{"mybin", "binary content"}})
 	archivePath := writeTempArchive(t, data, "good.zip")
 	dest := t.TempDir()
 
-	if err := safeZipExtractAll(archivePath, dest); err != nil {
+	if err := extractArchive(archivePath, dest); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	got, err := os.ReadFile(filepath.Join(dest, "mybin"))
@@ -282,17 +355,43 @@ func TestSafeZipExtractAll_HappyPath(t *testing.T) {
 	}
 }
 
-func TestSafeZipExtractAll_PathTraversalRejected(t *testing.T) {
+func TestExtractArchive_ZipPathTraversalRejected(t *testing.T) {
 	data := makeZip(t, []struct{ name, content string }{{"../../etc/evil", "pwned"}})
 	archivePath := writeTempArchive(t, data, "evil.zip")
 	dest := t.TempDir()
 
-	err := safeZipExtractAll(archivePath, dest)
+	err := extractArchive(archivePath, dest)
 	if err == nil {
 		t.Fatal("expected error for path traversal")
 	}
 	if !strings.Contains(err.Error(), "path escapes") {
 		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+// ── isExtractableArchive ──────────────────────────────────────────────────────
+
+func TestIsExtractableArchive(t *testing.T) {
+	cases := []struct {
+		name string
+		want bool
+	}{
+		{"tool.tar.gz", true},
+		{"tool.tgz", true},
+		{"tool.tar.xz", true},
+		{"tool.tar.bz2", true},
+		{"tool.tar.zst", true},
+		{"tool.tar", true},
+		{"tool.zip", true},
+		{"tool.TAR.GZ", true},
+		{"tool", false},
+		{"tool.gz", false},
+		{"tool-linux-amd64", false},
+	}
+	for _, tc := range cases {
+		if got := isExtractableArchive(tc.name); got != tc.want {
+			t.Errorf("isExtractableArchive(%q) = %v, want %v", tc.name, got, tc.want)
+		}
 	}
 }
 
@@ -583,25 +682,46 @@ func TestInstallGitHub_DownloadNotFound(t *testing.T) {
 	}
 }
 
-func TestInstallGitHub_UnsupportedArchive(t *testing.T) {
-	newGitHubTestServer(t, "tool_1.0.0_linux_amd64.tar.xz", []byte("not a real xz"))
+func TestInstallGitHub_TarXz(t *testing.T) {
+	// .tar.xz is now supported via mholt/archives.
+	tarData := makeTar(t, []struct{ name, content string }{{"lazygit", "#!/bin/sh\necho lazygit"}})
+	data := xzCompress(t, tarData)
+	newGitHubTestServer(t, "lazygit_1.0.0_Linux_x86_64.tar.xz", data)
+
+	tool := config.Tool{Name: "lazygit"}
+	inst := config.ToolInstall{
+		Method: "github",
+		Repo:   "jesseduffield/lazygit",
+		Asset:  "lazygit_{version}_Linux_x86_64.tar.xz",
+		Binary: "lazygit",
+	}
+	binDir := t.TempDir()
+	if err := installGitHub(tool, inst, binDir); err != nil {
+		t.Fatalf("installGitHub: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(binDir, "lazygit")); err != nil {
+		t.Errorf("binary not installed: %v", err)
+	}
+}
+
+func TestInstallGitHub_CorruptArchive(t *testing.T) {
+	// A file that claims to be a .tar.gz but is not must surface an error and
+	// must never be installed verbatim as the binary.
+	newGitHubTestServer(t, "tool_1.0.0_linux_amd64.tar.gz", []byte("not a real archive"))
 
 	tool := config.Tool{Name: "tool"}
 	inst := config.ToolInstall{
 		Method: "github",
 		Repo:   "example/tool",
-		Asset:  "tool_{version}_linux_amd64.tar.xz",
+		Asset:  "tool_{version}_linux_amd64.tar.gz",
 	}
 	binDir := t.TempDir()
 	err := installGitHub(tool, inst, binDir)
 	if err == nil {
-		t.Fatal("expected error for unsupported .tar.xz archive")
-	}
-	if !strings.Contains(err.Error(), "unsupported archive") {
-		t.Errorf("unexpected error: %v", err)
+		t.Fatal("expected error for corrupt archive")
 	}
 	if _, statErr := os.Stat(filepath.Join(binDir, "tool")); statErr == nil {
-		t.Error("the compressed archive must not be installed as the binary")
+		t.Error("the corrupt archive must not be installed as the binary")
 	}
 }
 

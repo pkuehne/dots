@@ -41,6 +41,12 @@ The `github` method installs the latest release by default. Pin a release with
 `version = "1.2.3"` — the tag is matched as given, falling back to a `v` prefix
 (`v1.2.3`).
 
+When the matched asset is an archive, dots extracts it and locates the binary
+(see `binary` / `binary_path`). Supported archive formats are `.tar.gz`/`.tgz`,
+`.tar.bz2`, `.tar.xz`, `.tar.zst`, `.tar` and `.zip`. Any other asset is
+installed verbatim. Path-traversal and out-of-archive symlink entries are
+rejected as a safety measure.
+
 ## Asset Pattern Tokens
 
 | Token | Values |
