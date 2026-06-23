@@ -83,14 +83,32 @@ func strMap(m map[string]any, key string) map[string]string {
 }
 
 // tableSlice extracts an array of tables from m[key].
-// BurntSushi/toml decodes [[array-of-tables]] as []map[string]interface{},
-// which is the same underlying type as []map[string]any.
+//
+// BurntSushi/toml decodes the two equivalent spellings of an array-of-tables
+// into different Go types, and both must be handled:
+//
+//   - [[x]] block form        → []map[string]any
+//   - x = [ { … } ] inline    → []any whose elements are map[string]any
+//
+// Only handling the first form silently dropped inline entries (issue #29).
+// Genuinely malformed input (e.g. a non-table element) is rejected upstream by
+// validateConfig before parsing reaches here, so a stray element is skipped
+// defensively rather than mis-decoded.
 func tableSlice(m map[string]any, key string) []map[string]any {
-	v, ok := m[key].([]map[string]any)
-	if !ok {
+	switch v := m[key].(type) {
+	case []map[string]any:
+		return v
+	case []any:
+		out := make([]map[string]any, 0, len(v))
+		for _, e := range v {
+			if mm, ok := e.(map[string]any); ok {
+				out = append(out, mm)
+			}
+		}
+		return out
+	default:
 		return nil
 	}
-	return v
 }
 
 // ── Document loading ─────────────────────────────────────────────────────────

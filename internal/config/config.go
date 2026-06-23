@@ -212,6 +212,10 @@ func Load(repoRoot, profile string) (Config, error) {
 
 	merged := mergeProfiles(raw, platform.Detect(), platform.Hostname(), profile)
 
+	if err := validateConfig(merged); err != nil {
+		return Config{}, err
+	}
+
 	if m, ok := merged["meta"].(map[string]any); ok {
 		cfg.Meta = MetaConfig{
 			Version:     int(intVal(m, "version", 1)),
