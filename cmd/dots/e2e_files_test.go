@@ -3,10 +3,12 @@
 package main
 
 import (
+	"bytes"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"testing"
+
+	"filippo.io/age"
 
 	"github.com/pkuehne/dots/internal/platform"
 )
@@ -280,36 +282,42 @@ func TestE2E_SecretStatusReporting(t *testing.T) {
 // TestE2E_SecretRoundTrip exercises a real age keypair end to end: generate a
 // key, encrypt a file into the repo, deploy it via the secret (.age) discovery
 // path, and confirm the plaintext lands at the destination with 0600
-// permissions. Skips when age/age-keygen are unavailable. It uses its own clean
-// repo so no invalid .age file can poison the apply.
+// permissions. age is linked into the binary, so no external tools are needed.
+// It uses its own clean repo so no invalid .age file can poison the apply.
 func TestE2E_SecretRoundTrip(t *testing.T) {
-	if _, err := exec.LookPath("age"); err != nil {
-		t.Skip("age not installed — skipping encrypt/decrypt round-trip")
-	}
-	if _, err := exec.LookPath("age-keygen"); err != nil {
-		t.Skip("age-keygen not installed — skipping round-trip")
-	}
 	home := t.TempDir()
 	repo := scaffoldRepo(t)
+
+	id, err := age.GenerateX25519Identity()
+	if err != nil {
+		t.Fatalf("GenerateX25519Identity: %v", err)
+	}
+	recipient := id.Recipient().String()
 
 	keyPath := filepath.Join(home, ".config", "dots", "key.txt")
 	if err := os.MkdirAll(filepath.Dir(keyPath), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	keygen := exec.Command("age-keygen", "-o", keyPath)
-	if out, err := keygen.CombinedOutput(); err != nil {
-		t.Fatalf("age-keygen: %v\n%s", err, out)
-	}
-	recipient := publicKeyFromIdentity(t, keyPath)
+	keyContents := "# public key: " + recipient + "\n" + id.String() + "\n"
+	writeFile(t, keyPath, keyContents)
 
 	// Encrypt a plaintext secret into the repo as files/.token.age.
-	plainSrc := filepath.Join(t.TempDir(), "token")
-	writeFile(t, plainSrc, "s3cr3t\n")
 	encOut := filepath.Join(repo, "files", ".token.age")
-	enc := exec.Command("age", "--encrypt", "-r", recipient, "-o", encOut, plainSrc)
-	if out, err := enc.CombinedOutput(); err != nil {
-		t.Fatalf("age encrypt: %v\n%s", err, out)
+	if err := os.MkdirAll(filepath.Dir(encOut), 0o755); err != nil {
+		t.Fatal(err)
 	}
+	var buf bytes.Buffer
+	w, err := age.Encrypt(&buf, id.Recipient())
+	if err != nil {
+		t.Fatalf("age.Encrypt: %v", err)
+	}
+	if _, err := w.Write([]byte("s3cr3t\n")); err != nil {
+		t.Fatalf("write plaintext: %v", err)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatalf("close encryptor: %v", err)
+	}
+	writeFile(t, encOut, buf.String())
 
 	writeToml(t, repo, `[meta]
 version = 1
@@ -327,15 +335,4 @@ recipient = "`+recipient+`"
 		t.Errorf("decrypted content = %q, want %q", got, "s3cr3t\n")
 	}
 	assertMode(t, dst, 0o600)
-}
-
-// publicKeyFromIdentity extracts the age recipient (public key) from a key file
-// produced by age-keygen.
-func publicKeyFromIdentity(t *testing.T, keyPath string) string {
-	t.Helper()
-	out, err := exec.Command("age-keygen", "-y", keyPath).Output()
-	if err != nil {
-		t.Fatalf("age-keygen -y: %v", err)
-	}
-	return string(out[:len(out)-1]) // strip trailing newline
 }

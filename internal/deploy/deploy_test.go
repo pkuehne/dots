@@ -1,11 +1,12 @@
 package deploy_test
 
 import (
+	"bytes"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"strings"
 	"testing"
+
+	"filippo.io/age"
 
 	"github.com/pkuehne/dots/internal/config"
 	"github.com/pkuehne/dots/internal/deploy"
@@ -432,57 +433,52 @@ func TestApply_SecretDryRun(t *testing.T) {
 	}
 }
 
-// TestApply_SecretMissingAge surfaces the decryption failure on Result.Err
-// rather than silently skipping.
-func TestApply_SecretMissingAge(t *testing.T) {
+// TestApply_SecretMissingIdentity surfaces the decryption failure on Result.Err
+// rather than silently skipping when no identity is configured.
+func TestApply_SecretMissingIdentity(t *testing.T) {
 	_, opts := makeRepo(t, map[string]string{"files/.ssh/id_rsa.age": "enc"})
-	t.Setenv("PATH", t.TempDir())
 	dst := homeDst(t, opts, ".ssh/id_rsa")
 	e := entry("files/.ssh/id_rsa.age", dst)
 	e.Secret = true
 
 	r := deploy.Apply(e, opts)
 	if r.Err == nil {
-		t.Fatal("expected error when age is absent")
+		t.Fatal("expected error when no identity is configured")
 	}
 }
 
 // encryptedSecret generates an age keypair, encrypts plaintext to <root>/<rel>,
-// and returns the identity file path. Skips if age/age-keygen are absent.
+// and returns the identity file path. Uses the linked-in age library, so it
+// needs no external binaries.
 func encryptedSecret(t *testing.T, root, rel, plaintext string) string {
 	t.Helper()
-	if _, err := exec.LookPath("age"); err != nil {
-		t.Skip("age not on PATH")
-	}
-	if _, err := exec.LookPath("age-keygen"); err != nil {
-		t.Skip("age-keygen not on PATH")
+	id, err := age.GenerateX25519Identity()
+	if err != nil {
+		t.Fatalf("GenerateX25519Identity: %v", err)
 	}
 	dir := t.TempDir()
 	keyFile := filepath.Join(dir, "key.txt")
-	if out, err := exec.Command("age-keygen", "-o", keyFile).CombinedOutput(); err != nil {
-		t.Fatalf("age-keygen: %v\n%s", err, out)
-	}
-	keyBytes, _ := os.ReadFile(keyFile)
-	recipient := ""
-	for _, line := range strings.Split(string(keyBytes), "\n") {
-		if strings.HasPrefix(line, "# public key:") {
-			recipient = strings.TrimSpace(strings.TrimPrefix(line, "# public key:"))
-		}
-	}
-	if recipient == "" {
-		t.Fatal("could not parse public key from age-keygen output")
-	}
-	plainFile := filepath.Join(dir, "plain")
-	if err := os.WriteFile(plainFile, []byte(plaintext), 0o600); err != nil {
+	contents := "# public key: " + id.Recipient().String() + "\n" + id.String() + "\n"
+	if err := os.WriteFile(keyFile, []byte(contents), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	ageFile := filepath.Join(root, rel)
 	if err := os.MkdirAll(filepath.Dir(ageFile), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	cmd := exec.Command("age", "--encrypt", "-r", recipient, "-o", ageFile, plainFile)
-	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("age encrypt: %v\n%s", err, out)
+	var buf bytes.Buffer
+	w, err := age.Encrypt(&buf, id.Recipient())
+	if err != nil {
+		t.Fatalf("age.Encrypt: %v", err)
+	}
+	if _, err := w.Write([]byte(plaintext)); err != nil {
+		t.Fatalf("write plaintext: %v", err)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatalf("close encryptor: %v", err)
+	}
+	if err := os.WriteFile(ageFile, buf.Bytes(), 0o600); err != nil {
+		t.Fatal(err)
 	}
 	return keyFile
 }

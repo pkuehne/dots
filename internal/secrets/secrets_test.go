@@ -2,10 +2,11 @@ package secrets_test
 
 import (
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"filippo.io/age"
 
 	"github.com/pkuehne/dots/internal/config"
 	"github.com/pkuehne/dots/internal/secrets"
@@ -25,31 +26,7 @@ func cfgWithRecipient(recipient string) config.Config {
 
 // ── DecryptToMemory ───────────────────────────────────────────────────────────
 
-func TestDecryptToMemory_NoAgeBinary(t *testing.T) {
-	// Arrange: point PATH to an empty dir so age is not found.
-	empty := t.TempDir()
-	t.Setenv("PATH", empty)
-
-	src := filepath.Join(t.TempDir(), "secret.age")
-	os.WriteFile(src, []byte("x"), 0o600)
-	identity := filepath.Join(t.TempDir(), "key.txt")
-	os.WriteFile(identity, []byte("AGE-SECRET-KEY-1..."), 0o600)
-
-	cfg := cfgWithIdentity(identity)
-	_, err := secrets.DecryptToMemory(src, cfg)
-	if err == nil {
-		t.Fatal("expected error, got nil")
-	}
-	if !strings.Contains(err.Error(), "age") || !strings.Contains(err.Error(), "not found") {
-		t.Errorf("unexpected error message: %v", err)
-	}
-}
-
 func TestDecryptToMemory_NoIdentityFile(t *testing.T) {
-	if _, err := exec.LookPath("age"); err != nil {
-		t.Skip("age not on PATH")
-	}
-
 	src := filepath.Join(t.TempDir(), "secret.age")
 	os.WriteFile(src, []byte("x"), 0o600)
 	missing := filepath.Join(t.TempDir(), "nonexistent-key.txt")
@@ -66,28 +43,21 @@ func TestDecryptToMemory_NoIdentityFile(t *testing.T) {
 
 // ── Encrypt ───────────────────────────────────────────────────────────────────
 
-func TestEncrypt_NoAgeBinary(t *testing.T) {
-	empty := t.TempDir()
-	t.Setenv("PATH", empty)
-
+func TestEncrypt_InvalidRecipient(t *testing.T) {
 	src := filepath.Join(t.TempDir(), "secret.txt")
 	os.WriteFile(src, []byte("my secret"), 0o600)
 
-	cfg := cfgWithRecipient("age1abc...")
+	cfg := cfgWithRecipient("not-a-valid-age-recipient")
 	err := secrets.Encrypt(src, "", cfg)
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
-	if !strings.Contains(err.Error(), "age") || !strings.Contains(err.Error(), "not found") {
+	if !strings.Contains(err.Error(), "Failed to encrypt") {
 		t.Errorf("unexpected error message: %v", err)
 	}
 }
 
 func TestEncrypt_NoRecipient(t *testing.T) {
-	if _, err := exec.LookPath("age"); err != nil {
-		t.Skip("age not on PATH")
-	}
-
 	src := filepath.Join(t.TempDir(), "secret.txt")
 	os.WriteFile(src, []byte("x"), 0o600)
 
@@ -101,43 +71,27 @@ func TestEncrypt_NoRecipient(t *testing.T) {
 	}
 }
 
-// ── round-trip (skipped unless age is present and not in short mode) ──────────
+// ── round-trip ────────────────────────────────────────────────────────────────
 
-func TestRoundTrip(t *testing.T) {
-	if testing.Short() {
-		t.Skip("skipping round-trip test in short mode")
-	}
-	if _, err := exec.LookPath("age"); err != nil {
-		t.Skip("age not on PATH")
-	}
-	if _, err := exec.LookPath("age-keygen"); err != nil {
-		t.Skip("age-keygen not on PATH")
-	}
-
-	dir := t.TempDir()
-
-	// Generate a keypair.
-	keyFile := filepath.Join(dir, "key.txt")
-	out, err := exec.Command("age-keygen", "-o", keyFile).CombinedOutput()
+// genKeypair generates an age X25519 identity, writes it to a key file in the
+// CLI-compatible format, and returns the file path and the public recipient.
+func genKeypair(t *testing.T, dir string) (keyFile, recipient string) {
+	t.Helper()
+	id, err := age.GenerateX25519Identity()
 	if err != nil {
-		t.Fatalf("age-keygen: %v\n%s", err, out)
+		t.Fatalf("GenerateX25519Identity: %v", err)
 	}
-
-	// Extract the public key from the generated file.
-	keyBytes, err := os.ReadFile(keyFile)
-	if err != nil {
+	keyFile = filepath.Join(dir, "key.txt")
+	contents := "# public key: " + id.Recipient().String() + "\n" + id.String() + "\n"
+	if err := os.WriteFile(keyFile, []byte(contents), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	recipient := ""
-	for _, line := range strings.Split(string(keyBytes), "\n") {
-		if strings.HasPrefix(line, "# public key:") {
-			recipient = strings.TrimSpace(strings.TrimPrefix(line, "# public key:"))
-			break
-		}
-	}
-	if recipient == "" {
-		t.Fatal("could not parse public key from age-keygen output")
-	}
+	return keyFile, id.Recipient().String()
+}
+
+func TestRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	keyFile, recipient := genKeypair(t, dir)
 
 	// Write plaintext and encrypt.
 	plainSrc := filepath.Join(dir, "plain.txt")
@@ -173,30 +127,8 @@ func TestRoundTrip(t *testing.T) {
 // ── default dst paths ─────────────────────────────────────────────────────────
 
 func TestEncrypt_DefaultDstPath(t *testing.T) {
-	if _, err := exec.LookPath("age"); err != nil {
-		t.Skip("age not on PATH")
-	}
-	if testing.Short() {
-		t.Skip("skipping in short mode")
-	}
-	if _, err := exec.LookPath("age-keygen"); err != nil {
-		t.Skip("age-keygen not on PATH")
-	}
-
 	dir := t.TempDir()
-	keyFile := filepath.Join(dir, "key.txt")
-	out, err := exec.Command("age-keygen", "-o", keyFile).CombinedOutput()
-	if err != nil {
-		t.Fatalf("age-keygen: %v\n%s", err, out)
-	}
-	keyBytes, _ := os.ReadFile(keyFile)
-	recipient := ""
-	for _, line := range strings.Split(string(keyBytes), "\n") {
-		if strings.HasPrefix(line, "# public key:") {
-			recipient = strings.TrimSpace(strings.TrimPrefix(line, "# public key:"))
-			break
-		}
-	}
+	_, recipient := genKeypair(t, dir)
 
 	src := filepath.Join(dir, "secret.txt")
 	os.WriteFile(src, []byte("data"), 0o600)
@@ -210,30 +142,8 @@ func TestEncrypt_DefaultDstPath(t *testing.T) {
 }
 
 func TestDecrypt_DefaultDstPath(t *testing.T) {
-	if testing.Short() {
-		t.Skip("skipping in short mode")
-	}
-	if _, err := exec.LookPath("age"); err != nil {
-		t.Skip("age not on PATH")
-	}
-	if _, err := exec.LookPath("age-keygen"); err != nil {
-		t.Skip("age-keygen not on PATH")
-	}
-
 	dir := t.TempDir()
-	keyFile := filepath.Join(dir, "key.txt")
-	out, err := exec.Command("age-keygen", "-o", keyFile).CombinedOutput()
-	if err != nil {
-		t.Fatalf("age-keygen: %v\n%s", err, out)
-	}
-	keyBytes, _ := os.ReadFile(keyFile)
-	recipient := ""
-	for _, line := range strings.Split(string(keyBytes), "\n") {
-		if strings.HasPrefix(line, "# public key:") {
-			recipient = strings.TrimSpace(strings.TrimPrefix(line, "# public key:"))
-			break
-		}
-	}
+	keyFile, recipient := genKeypair(t, dir)
 
 	// Encrypt first.
 	src := filepath.Join(dir, "plain.txt")

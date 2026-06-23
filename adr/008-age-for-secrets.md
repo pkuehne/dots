@@ -1,5 +1,10 @@
 # ADR 008: age for Secrets
 
+> **Update:** The original decision shelled out to the `age` CLI. dots now links
+> the official [`filippo.io/age`](https://pkg.go.dev/filippo.io/age) library
+> directly into the binary, so no external `age` binary is required — see
+> [ADR 016](016-age-library-not-binary.md).
+
 ## Context
 Dotfiles repos often contain secrets (SSH keys, API tokens). These need to be encrypted at rest in the repo.
 

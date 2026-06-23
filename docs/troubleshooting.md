@@ -40,9 +40,15 @@ chmod 700 ~/.ssh
 chmod 600 ~/.ssh/*
 ```
 
-## age not found
+## Secret (.age) file won't decrypt
 
-Install age: `dots tools install age` or download from https://github.com/FiloSottile/age/releases
+age is linked into the `dots` binary — there is nothing to install. Decryption
+failures almost always mean the identity is missing or wrong:
+
+- Confirm `identity` under `[secrets]` in `dots.toml` points at your private key
+  file and that the file exists (`dots doctor` checks this when `.age` files are
+  present).
+- Confirm the key is the one matching the `recipient` the file was encrypted to.
 
 ## Proxy issues with GitHub
 

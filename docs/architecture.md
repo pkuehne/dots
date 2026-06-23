@@ -18,7 +18,7 @@ internal/
   shell/           Snippet generation, InsertBlock(), RemoveBlock(), WriteSnippets()
   git/             GenerateConfig(), WriteManaged(), Uninit()
   ssh/             GenerateConfig(), WriteManaged(), Uninit(), SnakeToSSHKeyword()
-  secrets/         Encrypt(), Decrypt(), DecryptToMemory() via age subprocess
+  secrets/         Encrypt(), Decrypt(), DecryptToMemory() via filippo.io/age
   presets/         GenerateFzf(), TmuxPreset, GenerateZprofile(), Eject()
   repos/           Clone(), Update(), Status(), Filter() via git subprocess
   tools/           Check(), Install(), Filter() + GitHub release download
