@@ -751,7 +751,8 @@ func runDoctor() int {
 		}
 	}
 
-	// age binary (if .age files or secrets.recipient configured).
+	// age secrets (if .age files present). age is linked into the binary, so
+	// no external tool is needed — but decrypting .age files needs an identity.
 	// filepath.Glob does not recurse, so walk the tree (skipping .git).
 	var ageFiles []string
 	_ = filepath.WalkDir(cfg.RepoRoot, func(p string, d os.DirEntry, _ error) error {
@@ -763,11 +764,16 @@ func runDoctor() int {
 		}
 		return nil
 	})
-	if len(ageFiles) > 0 || cfg.Secrets.Recipient != "" {
-		if _, err := exec.LookPath("age"); err == nil {
-			ok("age available (secrets configured)")
-		} else {
-			fail("age not found but .age files or [secrets] configured")
+	if len(ageFiles) > 0 {
+		identity := fileutil.Expand(cfg.Secrets.Identity)
+		_, identityErr := os.Stat(identity)
+		switch {
+		case cfg.Secrets.Identity == "":
+			fail(".age files present but no [secrets] identity configured")
+		case identityErr != nil:
+			fail(fmt.Sprintf("age identity file not found: %s", identity))
+		default:
+			ok("age identity available (.age files decryptable)")
 		}
 	}
 
