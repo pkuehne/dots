@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/fatih/color"
@@ -37,6 +38,14 @@ func styleFor(action string) actionStyle {
 		return actionStyle{"✓", "copied", cGreen, "copy"}
 	case action == "decrypted" || action == "decrypt":
 		return actionStyle{"🔒", "decrypted", cCyan, "decrypt"}
+	case action == "installed" || action == "install":
+		return actionStyle{"✓", "installed", cGreen, "install"}
+	case action == "cloned" || action == "clone":
+		return actionStyle{"✓", "cloned", cGreen, "clone"}
+	case action == "present":
+		// A tool already on PATH or a repo already cloned: nothing to do, shown
+		// dimmed like "unchanged" so apply still lists it.
+		return actionStyle{"·", "present", cDim, ""}
 	case action == "diff":
 		return actionStyle{"~", "drifted", cYellow, "update"}
 	case action == "unchanged":
@@ -49,6 +58,22 @@ func styleFor(action string) actionStyle {
 	default:
 		return actionStyle{"•", action, nil, ""}
 	}
+}
+
+// printStatusLine renders one aligned, coloured status row: an icon, a
+// fixed-width state label and the target name. In dry-run the past-tense label
+// becomes "would <verb>" for mutating actions. Files, tools and repos all use
+// this so apply output stays uniform across subsystems.
+func printStatusLine(action, name string, dryRun bool) {
+	st := styleFor(action)
+	label := st.label
+	if dryRun && st.verb != "" {
+		label = "would " + st.verb
+	}
+	fmt.Printf("  %s %s  %s\n",
+		colorize(st.color, st.icon),
+		colorize(st.color, fmt.Sprintf("%-16s", label)),
+		name)
 }
 
 // colorize renders s in c, or returns it unstyled when c is nil. color handles

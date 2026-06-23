@@ -93,6 +93,13 @@ init → apply → show → uninit
 6. Write managed.gitconfig (if git.managed)
 7. Write managed SSH config (if ssh.managed)
 8. Clone missing repos
+9. Generate preset files (tmux, fzf) (if configured)
+10. Install missing [[tool]] entries — same logic as `dots tools install`
+11. Write login-shell files (~/.zprofile, ~/.profile) (if shell.managed + shell.login)
+
+`dots apply` is the single entry point: it does everything, including tool
+installs. The `dots tools` subcommands exist for running that step in isolation,
+not because apply omits it.
 
 ## Tool Contributions to Multiple Subsystems
 
