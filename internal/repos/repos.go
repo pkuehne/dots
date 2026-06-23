@@ -23,24 +23,31 @@ type RepoState struct {
 	Current string // current ref (branch or SHA)
 }
 
-// Clone clones any repos that are not yet present on disk.
-// If names is non-empty, only those repos are cloned.
-func Clone(cfg config.Config, names []string, dryRun bool) error {
+// CloneResult is the outcome of processing one [[repo]] during a clone pass.
+// Action is "cloned" when a clone happened (or would happen in dry-run) and
+// "present" when the repo was already on disk. Printing is left to the caller
+// so apply can render coloured, uniform status lines.
+type CloneResult struct {
+	Entry  config.RepoEntry
+	Action string
+}
+
+// Clone clones any repos that are not yet present on disk and returns a result
+// per active repo. If names is non-empty, only those repos are considered.
+func Clone(cfg config.Config, names []string, dryRun bool) ([]CloneResult, error) {
+	var results []CloneResult
 	for _, r := range active(cfg, names) {
 		status, err := cloneOne(r, dryRun)
 		if err != nil {
-			return err
+			return results, err
 		}
-		switch status {
-		case "ok":
-			if dryRun {
-				fmt.Printf("  would clone %s → %s\n", r.Name, r.Dst)
-			} else {
-				fmt.Printf("  cloned %s → %s\n", r.Name, r.Dst)
-			}
+		action := "present"
+		if status == "ok" {
+			action = "cloned"
 		}
+		results = append(results, CloneResult{Entry: r, Action: action})
 	}
-	return nil
+	return results, nil
 }
 
 // Update fetches and pulls repos that already exist.

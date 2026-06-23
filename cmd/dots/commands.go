@@ -160,13 +160,13 @@ func runApply(cfg config.Config, fileArgs []string, dryRun, forceCopy, summary b
 	if err := applySSH(cfg, dryRun); err != nil {
 		return err
 	}
-	if err := applyRepos(cfg, dryRun); err != nil {
+	if err := applyRepos(cfg, dryRun, summary); err != nil {
 		return err
 	}
 	if err := applyPresets(cfg, dryRun); err != nil {
 		return err
 	}
-	if err := applyTools(cfg, dryRun); err != nil {
+	if err := applyTools(cfg, dryRun, summary); err != nil {
 		return err
 	}
 	if err := applyLoginShell(cfg, dryRun); err != nil {
@@ -199,11 +199,37 @@ func applySSH(cfg config.Config, dryRun bool) error {
 	return gossh.WriteManaged(cfg, platform.Platforms(), dryRun)
 }
 
-func applyRepos(cfg config.Config, dryRun bool) error {
+func applyRepos(cfg config.Config, dryRun, summary bool) error {
 	if len(cfg.Repos) == 0 {
 		return nil
 	}
-	return repos.Clone(cfg, nil, dryRun)
+	results, err := repos.Clone(cfg, nil, dryRun)
+	printCloneResults(results, dryRun, summary)
+	return err
+}
+
+// printCloneResults renders one coloured status line per repo (unless summary)
+// followed by a tally, matching the file and tool output so apply lists every
+// repo — including ones already cloned — rather than only the ones it touched.
+func printCloneResults(results []repos.CloneResult, dryRun, summary bool) {
+	cloned, present := 0, 0
+	for _, r := range results {
+		switch r.Action {
+		case "cloned":
+			cloned++
+		case "present":
+			present++
+		}
+		if summary {
+			continue
+		}
+		printStatusLine(r.Action, r.Entry.Dst, dryRun)
+	}
+	verb := "cloned"
+	if dryRun {
+		verb = "to clone"
+	}
+	fmt.Printf("\nRepos: %d %s, %d already present\n", cloned, verb, present)
 }
 
 func applyPresets(cfg config.Config, dryRun bool) error {
@@ -314,7 +340,7 @@ func checkKnownTools(allTools []config.Tool, names []string) error {
 	return nil
 }
 
-func applyTools(cfg config.Config, dryRun bool) error {
+func applyTools(cfg config.Config, dryRun, summary bool) error {
 	if len(cfg.Tools) == 0 {
 		return nil
 	}
@@ -325,23 +351,26 @@ func applyTools(cfg config.Config, dryRun bool) error {
 	opts := tools.InstallOptions{DryRun: dryRun}
 	installed, present, installErrors := 0, 0, 0
 	for _, r := range results {
+		// List every tool — already-present ones included — so apply reports the
+		// full set rather than only the tools it touched (#26).
 		if r.Installed {
 			present++
+			if !summary {
+				printStatusLine("present", r.Tool.Name, dryRun)
+			}
 			continue
 		}
 		if err := tools.Install(r.Tool, cfg, plat, arch, opts); err != nil {
-			fmt.Fprintf(os.Stderr, "  ✗ %s: %v\n", r.Tool.Name, err)
+			fmt.Fprintf(os.Stderr, "  %s %s  %s: %v\n",
+				colorize(cRed, "✗"), colorize(cRed, fmt.Sprintf("%-16s", "error")), r.Tool.Name, err)
 			installErrors++
-		} else if dryRun {
-			fmt.Printf("  would install %s\n", r.Tool.Name)
-			installed++
 		} else {
-			fmt.Printf("  ✓ installed %s\n", r.Tool.Name)
 			installed++
+			if !summary {
+				printStatusLine("installed", r.Tool.Name, dryRun)
+			}
 		}
 	}
-	// Always emit a summary, even when every tool is already present: otherwise
-	// apply is silent about tools and looks like it skipped them entirely (#26).
 	verb := "installed"
 	if dryRun {
 		verb = "to install"
@@ -400,15 +429,7 @@ func printResults(results []deploy.Result, dryRun, summary bool) int {
 		if summary {
 			continue
 		}
-		st := styleFor(r.Action)
-		label := st.label
-		if dryRun && st.verb != "" {
-			label = "would " + st.verb
-		}
-		fmt.Printf("  %s %s  %s\n",
-			colorize(st.color, st.icon),
-			colorize(st.color, fmt.Sprintf("%-16s", label)),
-			r.Entry.Dst)
+		printStatusLine(r.Action, r.Entry.Dst, dryRun)
 	}
 	fmt.Printf("\n%d linked, %d copied, %d unchanged, %d skipped",
 		counts["linked"]+counts["link"],
@@ -1225,7 +1246,9 @@ func newReposCmd() *cobra.Command {
 		Use:   "clone [names...]",
 		Short: "Clone missing repos",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return repos.Clone(globals.cfg, args, cloneDryRun)
+			results, err := repos.Clone(globals.cfg, args, cloneDryRun)
+			printCloneResults(results, cloneDryRun, false)
+			return err
 		},
 	}
 	clone.Flags().BoolVarP(&cloneDryRun, "dry-run", "n", false, "print actions without executing")

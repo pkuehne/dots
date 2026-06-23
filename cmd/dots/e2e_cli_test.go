@@ -147,9 +147,10 @@ note = "install it yourself"
 `)
 
 	out := mustDots(t, home, "--repo", repo, "apply")
-	// The missing tool is acted on, and the summary always renders so an
-	// all-present run is not silent.
+	// Every tool is listed — the one acted on AND the already-present one — and
+	// the summary always renders so an all-present run is not silent.
 	assertContains(t, "apply installs missing tool", out, "missing-tool")
+	assertContains(t, "apply lists present tool", out, "present-tool")
 	assertContains(t, "apply tools summary", out, "Tools:")
 	assertContains(t, "apply tools present count", out, "1 already present")
 }

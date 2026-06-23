@@ -36,6 +36,11 @@ func TestStyleFor(t *testing.T) {
 	}{
 		{"linked", "linked", "link"},
 		{"link", "linked", "link"},
+		{"installed", "installed", "install"},
+		{"install", "installed", "install"},
+		{"cloned", "cloned", "clone"},
+		{"clone", "cloned", "clone"},
+		{"present", "present", ""},
 		{"copied", "copied", "copy"},
 		{"copy", "copied", "copy"},
 		{"decrypted", "decrypted", "decrypt"},
