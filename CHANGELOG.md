@@ -1,5 +1,21 @@
 # Changelog
 
+## [1.1.0](https://github.com/pkuehne/dots/compare/dots-v1.0.1...dots-v1.1.0) (2026-06-23)
+
+
+### Features
+
+* improve apply output — per-file status, drop templating call-out ([#21](https://github.com/pkuehne/dots/issues/21)) ([5bb31b4](https://github.com/pkuehne/dots/commit/5bb31b45446c2e6a7a6fb79499f2b8f363f93b54))
+* report tool installs during apply ([#26](https://github.com/pkuehne/dots/issues/26)) ([#30](https://github.com/pkuehne/dots/issues/30)) ([b5f6c7f](https://github.com/pkuehne/dots/commit/b5f6c7ff41a3ce1066cb0e4663601a8a00725ff5))
+* use filippo.io/age library instead of age binary ([#27](https://github.com/pkuehne/dots/issues/27)) ([8be32ba](https://github.com/pkuehne/dots/commit/8be32ba1215f934626bb1449b39d6d68a98e8d7d)), closes [#23](https://github.com/pkuehne/dots/issues/23)
+* use mholt/archives for tool extraction ([#28](https://github.com/pkuehne/dots/issues/28)) ([2f15ad6](https://github.com/pkuehne/dots/commit/2f15ad649dd5a5118ac8adef48d7c8ed6447db29))
+
+
+### Bug Fixes
+
+* follow symlinks when ensuring parent directories ([#20](https://github.com/pkuehne/dots/issues/20)) ([7dfddeb](https://github.com/pkuehne/dots/commit/7dfddebaa3ce545823c671fe9c34a59dca506ecb))
+* parse inline array-of-tables and validate config strictly ([#31](https://github.com/pkuehne/dots/issues/31)) ([edea0ec](https://github.com/pkuehne/dots/commit/edea0ecb6dd1d7f76191d9945a47d9e2e2f70e8b)), closes [#29](https://github.com/pkuehne/dots/issues/29)
+
 ## [1.0.1](https://github.com/pkuehne/dots/compare/dots-v1.0.0...dots-v1.0.1) (2026-06-21)
 
 
