@@ -21,6 +21,26 @@ See the spec for the full annotated `dots.toml` schema. This document provides a
 | `[secrets]` | Age encryption config |
 | `[presets]` | Opinionated preset bundles |
 
+### Block vs. inline form
+
+Any array-of-tables section accepts both TOML spellings interchangeably — use
+whichever reads better:
+
+```toml
+# Block form
+[[tool.install]]
+method = "github"
+repo = "jesseduffield/lazydocker"
+
+# Inline form (identical meaning)
+install = [
+  { method = "github", repo = "jesseduffield/lazydocker" },
+]
+```
+
+Unknown keys and structurally wrong values are rejected at load time with a
+hint, rather than being silently ignored.
+
 ## Install Methods
 
 | Method | Binary | Notes |
