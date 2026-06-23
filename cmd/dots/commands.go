@@ -323,9 +323,10 @@ func applyTools(cfg config.Config, dryRun bool) error {
 	active := tools.Filter(cfg.Tools, nil, "", platform.Platforms(), cfg.ActiveProfile)
 	results := tools.Check(active)
 	opts := tools.InstallOptions{DryRun: dryRun}
-	installErrors := 0
+	installed, present, installErrors := 0, 0, 0
 	for _, r := range results {
 		if r.Installed {
+			present++
 			continue
 		}
 		if err := tools.Install(r.Tool, cfg, plat, arch, opts); err != nil {
@@ -333,10 +334,23 @@ func applyTools(cfg config.Config, dryRun bool) error {
 			installErrors++
 		} else if dryRun {
 			fmt.Printf("  would install %s\n", r.Tool.Name)
+			installed++
 		} else {
 			fmt.Printf("  ✓ installed %s\n", r.Tool.Name)
+			installed++
 		}
 	}
+	// Always emit a summary, even when every tool is already present: otherwise
+	// apply is silent about tools and looks like it skipped them entirely (#26).
+	verb := "installed"
+	if dryRun {
+		verb = "to install"
+	}
+	fmt.Printf("\nTools: %d %s, %d already present", installed, verb, present)
+	if installErrors > 0 {
+		fmt.Printf(", %d errors", installErrors)
+	}
+	fmt.Println()
 	if installErrors > 0 {
 		return errs.New(fmt.Sprintf("%d tool(s) failed to install", installErrors),
 			"Run 'dots tools check' for details.")

@@ -125,6 +125,35 @@ tags = ["cli"]
 	assertContains(t, "unknown tool error", out, "unknown tool")
 }
 
+// TestE2E_ApplyInstallsTools asserts `dots apply` runs the tool-install phase
+// and reports it — including when a tool is already present — so apply is never
+// silent about tools (#26). A "manual" method keeps the test offline.
+func TestE2E_ApplyInstallsTools(t *testing.T) {
+	home := t.TempDir()
+	repo := scaffoldRepo(t)
+	writeToml(t, repo, `[meta]
+version = 1
+
+[[tool]]
+name = "present-tool"
+check = "true"
+
+[[tool]]
+name = "missing-tool"
+check = "false"
+[[tool.install]]
+method = "manual"
+note = "install it yourself"
+`)
+
+	out := mustDots(t, home, "--repo", repo, "apply")
+	// The missing tool is acted on, and the summary always renders so an
+	// all-present run is not silent.
+	assertContains(t, "apply installs missing tool", out, "missing-tool")
+	assertContains(t, "apply tools summary", out, "Tools:")
+	assertContains(t, "apply tools present count", out, "1 already present")
+}
+
 // TestE2E_RepoResolutionError asserts a missing repo path produces a helpful
 // error rather than a panic or traceback (invariant 6).
 func TestE2E_RepoResolutionError(t *testing.T) {
