@@ -4,31 +4,23 @@ package tools
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"io/fs"
-	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
-	"time"
 
 	"github.com/mholt/archives"
 	"github.com/pkuehne/dots/internal/config"
 	"github.com/pkuehne/dots/internal/errs"
 	"github.com/pkuehne/dots/internal/fileutil"
+	"github.com/pkuehne/dots/internal/ghrelease"
 	"github.com/pkuehne/dots/internal/platform"
 )
-
-// httpClient is the shared HTTP client; replaced in tests.
-var httpClient = &http.Client{Timeout: 30 * time.Second}
-
-// githubAPIBase is the GitHub API root URL; replaced in tests.
-var githubAPIBase = "https://api.github.com"
 
 // CheckResult is the outcome of checking whether one tool is present.
 type CheckResult struct {
@@ -286,119 +278,13 @@ func runCmd(name string, args ...string) error {
 
 // ── GitHub release install ────────────────────────────────────────────────────
 
-type githubRelease struct {
-	TagName string        `json:"tag_name"`
-	Assets  []githubAsset `json:"assets"`
-}
-
-type githubAsset struct {
-	Name               string `json:"name"`
-	BrowserDownloadURL string `json:"browser_download_url"`
-}
-
-func githubGetLatestRelease(repo string) (*githubRelease, error) {
-	return githubGetRelease(repo, fmt.Sprintf("%s/repos/%s/releases/latest", githubAPIBase, repo))
-}
-
-// githubGetReleaseByTag fetches the release pinned by a [[tool.install]]
-// version field. The tag is tried as given and, if not found, with a "v"
-// prefix (version = "1.2.3" matches both 1.2.3 and v1.2.3 tags).
-func githubGetReleaseByTag(repo, version string) (*githubRelease, error) {
-	release, err := githubGetRelease(repo, fmt.Sprintf("%s/repos/%s/releases/tags/%s", githubAPIBase, repo, version))
-	if err != nil && !strings.HasPrefix(version, "v") {
-		if r2, err2 := githubGetRelease(repo, fmt.Sprintf("%s/repos/%s/releases/tags/v%s", githubAPIBase, repo, version)); err2 == nil {
-			return r2, nil
-		}
-	}
-	return release, err
-}
-
-func githubGetRelease(repo, url string) (*githubRelease, error) {
-	req, err := http.NewRequest("GET", url, nil)
-	if err != nil {
-		return nil, errs.NewTool(fmt.Sprintf("cannot build GitHub API request for %s", repo), err.Error())
-	}
-	req.Header.Set("Accept", "application/vnd.github.v3+json")
-	if token := os.Getenv("GITHUB_TOKEN"); token != "" {
-		req.Header.Set("Authorization", "token "+token)
-	}
-
-	resp, err := httpClient.Do(req)
-	if err != nil {
-		return nil, errs.NewTool(
-			fmt.Sprintf("failed to reach GitHub API for %s", repo),
-			fmt.Sprintf("Network error: %v\n\nHints:\n"+
-				"· Are you behind a proxy? Set: export HTTPS_PROXY=http://proxy:3128\n"+
-				"· Check connectivity: curl https://api.github.com", err),
-		)
-	}
-	defer resp.Body.Close()
-
-	switch resp.StatusCode {
-	case http.StatusForbidden:
-		return nil, errs.NewTool(
-			fmt.Sprintf("GitHub API rate limit exceeded for %s", repo),
-			"GitHub API rate limit exceeded (60 requests/hour for unauthenticated)\n\n"+
-				"Set GITHUB_TOKEN to raise the limit to 5000 req/hour:\n  export GITHUB_TOKEN=ghp_...",
-		)
-	case http.StatusOK:
-		// handled below
-	default:
-		return nil, errs.NewTool(
-			fmt.Sprintf("GitHub API returned HTTP %d for %s", resp.StatusCode, repo),
-			"Check the repository name and ensure a release exists.",
-		)
-	}
-
-	var release githubRelease
-	if err := json.NewDecoder(resp.Body).Decode(&release); err != nil {
-		return nil, errs.NewTool(fmt.Sprintf("failed to parse GitHub API response for %s", repo), err.Error())
-	}
-	return &release, nil
-}
-
-func githubDownloadAsset(url, dest string) error {
-	req, err := http.NewRequest("GET", url, nil)
-	if err != nil {
-		return errs.NewTool("cannot build asset download request", err.Error())
-	}
-	req.Header.Set("Accept", "application/octet-stream")
-	if token := os.Getenv("GITHUB_TOKEN"); token != "" {
-		req.Header.Set("Authorization", "token "+token)
-	}
-
-	resp, err := httpClient.Do(req)
-	if err != nil {
-		return errs.NewTool(fmt.Sprintf("failed to download asset from %s", url), err.Error())
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return errs.NewTool(
-			fmt.Sprintf("asset download returned HTTP %d from %s", resp.StatusCode, url),
-			"The download URL may be expired or the asset removed. Re-run to fetch the latest release.",
-		)
-	}
-
-	f, err := os.Create(dest)
-	if err != nil {
-		return errs.NewTool("cannot create download destination", err.Error())
-	}
-	defer f.Close()
-
-	if _, err := io.Copy(f, resp.Body); err != nil {
-		return errs.NewTool("failed to write downloaded asset", err.Error())
-	}
-	return nil
-}
-
 func installGitHub(tool config.Tool, inst config.ToolInstall, binDir string) error {
-	var release *githubRelease
+	var release *ghrelease.Release
 	var err error
 	if inst.Version != "" {
-		release, err = githubGetReleaseByTag(inst.Repo, inst.Version)
+		release, err = ghrelease.GetReleaseByTag(inst.Repo, inst.Version)
 	} else {
-		release, err = githubGetLatestRelease(inst.Repo)
+		release, err = ghrelease.GetLatestRelease(inst.Repo)
 	}
 	if err != nil {
 		return err
@@ -429,7 +315,7 @@ func installGitHub(tool config.Tool, inst config.ToolInstall, binDir string) err
 	assetPattern = replacer.Replace(assetPattern)
 
 	// Find a matching asset
-	var matched *githubAsset
+	var matched *ghrelease.Asset
 	for i := range release.Assets {
 		if globMatch(assetPattern, release.Assets[i].Name) {
 			matched = &release.Assets[i]
@@ -462,7 +348,7 @@ func installGitHub(tool config.Tool, inst config.ToolInstall, binDir string) err
 	defer os.RemoveAll(tmpDir)
 
 	downloadPath := filepath.Join(tmpDir, matched.Name)
-	if err := githubDownloadAsset(matched.BrowserDownloadURL, downloadPath); err != nil {
+	if err := ghrelease.DownloadAsset(matched.BrowserDownloadURL, downloadPath); err != nil {
 		return err
 	}
 

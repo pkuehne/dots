@@ -22,6 +22,8 @@ internal/
   presets/         GenerateFzf(), TmuxPreset, GenerateZprofile(), Eject()
   repos/           Clone(), Update(), Status(), Filter() via git subprocess
   tools/           Check(), Install(), Filter() + GitHub release download
+  ghrelease/       Shared GitHub release client: GetLatestRelease(), DownloadAsset()
+  selfupdate/      Check(), Run() — self-upgrade the dots binary (dots upgrade)
 ```
 
 ## Configuration Levels

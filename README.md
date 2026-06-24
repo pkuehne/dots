@@ -20,6 +20,14 @@ cd dots
 go build -o ~/.local/bin/dots ./cmd/dots
 ```
 
+**Upgrading:** once installed, dots manages itself — no need to re-run the
+installer.
+
+```sh
+dots upgrade           # replace the running binary with the latest release
+dots upgrade --check   # just report whether a newer version exists
+```
+
 ## Quick start
 
 ```sh
@@ -190,6 +198,8 @@ Files ending in `.age` under `files/` are decrypted automatically during apply.
 | Command | Description |
 |---------|-------------|
 | `dots init [dir]` | Scaffold a new dots repository |
+| `dots upgrade` | Upgrade the dots binary to the latest release |
+| `dots upgrade --check` | Report whether a newer dots release is available |
 | `dots apply` | Deploy files, generate configs, clone repos |
 | `dots apply --dry-run` | Preview without making changes |
 | `dots apply --summary` | Deploy, printing only the summary line (no per-file status) |
