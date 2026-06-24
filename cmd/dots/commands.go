@@ -472,7 +472,8 @@ func applyLoginShell(cfg config.Config, dryRun bool) error {
 	zprofile := fileutil.Expand("~/.zprofile")
 	profile := fileutil.Expand("~/.profile")
 	if dryRun {
-		fmt.Printf("  would write login shell: %s, %s\n", zprofile, profile)
+		printStatusLine("wrote", zprofile, true)
+		printStatusLine("wrote", profile, true)
 		return nil
 	}
 	zAction, err := writeUserFile(zprofile, presets.GenerateZprofile(cfg))
@@ -483,7 +484,8 @@ func applyLoginShell(cfg config.Config, dryRun bool) error {
 	if err != nil {
 		return err
 	}
-	fmt.Printf("  login shell: %s %s, %s %s\n", zAction, zprofile, pAction, profile)
+	printStatusLine(zAction, zprofile, false)
+	printStatusLine(pAction, profile, false)
 	return nil
 }
 
