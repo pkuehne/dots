@@ -24,6 +24,7 @@ import (
 	"github.com/pkuehne/dots/internal/shell"
 	gossh "github.com/pkuehne/dots/internal/ssh"
 	"github.com/pkuehne/dots/internal/tools"
+	"github.com/pkuehne/dots/internal/ui"
 )
 
 // ── init ─────────────────────────────────────────────────────────────────────
@@ -440,7 +441,7 @@ func applyTools(cfg config.Config, dryRun, summary bool) error {
 		}
 		if err := tools.Install(r.Tool, cfg, plat, arch, opts); err != nil {
 			fmt.Fprintf(os.Stderr, "  %s %s  %s: %v\n",
-				colorize(cRed, "✗"), colorize(cRed, fmt.Sprintf("%-16s", "error")), r.Tool.Name, err)
+				colorize(cRed, "✗"), colorize(cRed, fmt.Sprintf("%-*s", ui.LabelWidth, "error")), r.Tool.Name, err)
 			installErrors++
 		} else {
 			installed++
@@ -472,7 +473,8 @@ func applyLoginShell(cfg config.Config, dryRun bool) error {
 	zprofile := fileutil.Expand("~/.zprofile")
 	profile := fileutil.Expand("~/.profile")
 	if dryRun {
-		fmt.Printf("  would write login shell: %s, %s\n", zprofile, profile)
+		printStatusLine("wrote", zprofile, true)
+		printStatusLine("wrote", profile, true)
 		return nil
 	}
 	zAction, err := writeUserFile(zprofile, presets.GenerateZprofile(cfg))
@@ -483,7 +485,8 @@ func applyLoginShell(cfg config.Config, dryRun bool) error {
 	if err != nil {
 		return err
 	}
-	fmt.Printf("  login shell: %s %s, %s %s\n", zAction, zprofile, pAction, profile)
+	printStatusLine(zAction, zprofile, false)
+	printStatusLine(pAction, profile, false)
 	return nil
 }
 

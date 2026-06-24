@@ -14,6 +14,7 @@ import (
 	"github.com/pkuehne/dots/internal/config"
 	"github.com/pkuehne/dots/internal/fileutil"
 	"github.com/pkuehne/dots/internal/platform"
+	"github.com/pkuehne/dots/internal/ui"
 )
 
 // Marker constants reused by the git, ssh, and presets subsystems.
@@ -243,10 +244,10 @@ func deployUserSnippets(cfg config.Config, dir string, dryRun bool) error {
 			prefix, _ := strconv.Atoi(m[1])
 			inRange := (prefix >= 30 && prefix <= 49) ||
 				(prefix >= 80 && prefix <= 89) ||
-				(prefix >= 90 && prefix <= 99)
+				prefix >= 90
 			if !inRange {
-				fmt.Printf("  ⚠ Warning: %s has prefix %d outside expected ranges "+
-					"(030-049, 080-089, 090+)\n", name, prefix)
+				ui.Warn("Warning: %s has prefix %d outside expected ranges "+
+					"(030-049, 080-089, 090+)", name, prefix)
 			}
 		}
 		src := filepath.Join(cfg.RepoRoot, "shell", name)
@@ -269,11 +270,7 @@ func writeSnippet(dst string, content []byte, dryRun bool) error {
 		return err
 	}
 	if changed {
-		verb := "wrote"
-		if dryRun {
-			verb = "would write"
-		}
-		fmt.Printf("  %s %s\n", verb, dst)
+		ui.StatusLine("wrote", dst, dryRun)
 	}
 	return nil
 }
@@ -361,11 +358,7 @@ func InsertSourceLine(cfg config.Config, dryRun bool) error {
 			return err
 		}
 		if changed {
-			verb := "updated bootstrapper in"
-			if dryRun {
-				verb = "would update bootstrapper in"
-			}
-			fmt.Printf("  %s %s\n", verb, path)
+			ui.StatusLine("wrote", "bootstrapper → "+path, dryRun)
 		}
 	}
 	return nil
@@ -449,14 +442,12 @@ func Clean(cfg config.Config, dryRun bool) error {
 			if err := os.Remove(filepath.Join(dir, name)); err != nil {
 				return err
 			}
-			fmt.Printf("  removed %s\n", name)
-		} else {
-			fmt.Printf("  would remove %s\n", name)
 		}
+		ui.StatusLine("removed", name, dryRun)
 		removed++
 	}
 	if removed == 0 {
-		fmt.Println("  No stale snippets found.")
+		ui.Note("No stale snippets found.")
 	}
 	return nil
 }
