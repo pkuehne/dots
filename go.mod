@@ -9,6 +9,7 @@ require (
 	github.com/mholt/archives v0.1.5
 	github.com/spf13/cobra v1.9.1
 	github.com/ulikunitz/xz v0.5.15
+	golang.org/x/mod v0.37.0
 )
 
 require (

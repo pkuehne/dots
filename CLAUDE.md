@@ -55,6 +55,8 @@ internal/secrets/  age encrypt/decrypt — implemented
 internal/presets/  Preset generation + Eject — implemented
 internal/repos/    Repo cloning + Update/Status — implemented
 internal/tools/    Check, Install, Filter + GitHub release download — implemented
+internal/ghrelease/ Shared GitHub release client (resolve + download) — implemented
+internal/selfupdate/ Self-upgrade the dots binary (dots upgrade) — implemented
 ```
 
 ## Key invariants

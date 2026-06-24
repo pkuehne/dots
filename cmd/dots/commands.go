@@ -20,6 +20,7 @@ import (
 	"github.com/pkuehne/dots/internal/presets"
 	"github.com/pkuehne/dots/internal/repos"
 	"github.com/pkuehne/dots/internal/secrets"
+	"github.com/pkuehne/dots/internal/selfupdate"
 	"github.com/pkuehne/dots/internal/shell"
 	gossh "github.com/pkuehne/dots/internal/ssh"
 	"github.com/pkuehne/dots/internal/tools"
@@ -68,6 +69,83 @@ func runInit(dir string) error {
 	fmt.Printf("✓ Initialized dots in %s\n", d)
 	fmt.Println("  Created: dots.toml, files/, files.d/, shell/")
 	return nil
+}
+
+// ── upgrade ──────────────────────────────────────────────────────────────────
+
+func newUpgradeCmd() *cobra.Command {
+	var (
+		dryRun     bool
+		force      bool
+		checkOnly  bool
+		pinVersion string
+	)
+	cmd := &cobra.Command{
+		Use:   "upgrade",
+		Short: "Upgrade the dots binary to the latest release",
+		Long: "Download the latest dots release from GitHub and replace the running\n" +
+			"binary in place. Use --version to pin a release, --check to only report\n" +
+			"availability, or --dry-run to preview without writing.",
+		Args:        cobra.NoArgs,
+		Annotations: map[string]string{"skipConfig": "true"},
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runUpgrade(selfupdate.Options{
+				CurrentVersion: version,
+				TargetVersion:  pinVersion,
+				Force:          force,
+				DryRun:         dryRun || checkOnly,
+			}, checkOnly)
+		},
+	}
+	cmd.Flags().BoolVarP(&dryRun, "dry-run", "n", false, "show what would happen without writing")
+	cmd.Flags().BoolVarP(&force, "force", "f", false, "upgrade even if already current or a dev build")
+	cmd.Flags().BoolVar(&checkOnly, "check", false, "only report whether a newer version is available")
+	cmd.Flags().StringVar(&pinVersion, "version", "", "pin a specific release tag instead of the latest")
+	return cmd
+}
+
+func runUpgrade(opts selfupdate.Options, checkOnly bool) error {
+	if checkOnly {
+		res, err := selfupdate.Check(opts)
+		if err != nil {
+			return err
+		}
+		printUpgradeState(res)
+		return nil
+	}
+
+	res, err := selfupdate.Run(opts)
+	if err != nil {
+		return err
+	}
+
+	switch {
+	case res.Applied:
+		printStatusLine("installed", fmt.Sprintf("dots %s → %s", res.CurrentVersion, res.LatestVersion), false)
+		if res.BackupPath != "" {
+			fmt.Printf("  %s\n", colorize(cDim, "previous binary saved to "+res.BackupPath))
+		}
+	case res.Available && opts.DryRun:
+		printStatusLine("install", fmt.Sprintf("dots %s → %s", res.CurrentVersion, res.LatestVersion), true)
+	default:
+		printUpgradeState(res)
+	}
+	return nil
+}
+
+// printUpgradeState reports the current/latest comparison without implying an
+// action was taken (used by --check and the already-current path).
+func printUpgradeState(res selfupdate.Result) {
+	switch {
+	case res.Available:
+		fmt.Printf("  %s dots %s is available (current: %s). Run 'dots upgrade'.\n",
+			colorize(cYellow, "⚠"), res.LatestVersion, res.CurrentVersion)
+	case res.CurrentVersion == "dev":
+		fmt.Printf("  %s running a dev build; latest release is %s. Use --force to install it.\n",
+			colorize(cDim, "·"), res.LatestVersion)
+	default:
+		fmt.Printf("  %s dots is up to date (%s).\n", colorize(cGreen, "✓"), res.CurrentVersion)
+	}
 }
 
 // ── apply / preview ──────────────────────────────────────────────────────────
