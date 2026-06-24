@@ -244,7 +244,7 @@ func deployUserSnippets(cfg config.Config, dir string, dryRun bool) error {
 			prefix, _ := strconv.Atoi(m[1])
 			inRange := (prefix >= 30 && prefix <= 49) ||
 				(prefix >= 80 && prefix <= 89) ||
-				(prefix >= 90 && prefix <= 99)
+				prefix >= 90
 			if !inRange {
 				ui.Warn("Warning: %s has prefix %d outside expected ranges "+
 					"(030-049, 080-089, 090+)", name, prefix)

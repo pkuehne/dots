@@ -24,6 +24,7 @@ import (
 	"github.com/pkuehne/dots/internal/shell"
 	gossh "github.com/pkuehne/dots/internal/ssh"
 	"github.com/pkuehne/dots/internal/tools"
+	"github.com/pkuehne/dots/internal/ui"
 )
 
 // ── init ─────────────────────────────────────────────────────────────────────
@@ -440,7 +441,7 @@ func applyTools(cfg config.Config, dryRun, summary bool) error {
 		}
 		if err := tools.Install(r.Tool, cfg, plat, arch, opts); err != nil {
 			fmt.Fprintf(os.Stderr, "  %s %s  %s: %v\n",
-				colorize(cRed, "✗"), colorize(cRed, fmt.Sprintf("%-16s", "error")), r.Tool.Name, err)
+				colorize(cRed, "✗"), colorize(cRed, fmt.Sprintf("%-*s", ui.LabelWidth, "error")), r.Tool.Name, err)
 			installErrors++
 		} else {
 			installed++

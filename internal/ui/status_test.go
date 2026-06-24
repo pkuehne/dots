@@ -44,6 +44,8 @@ func TestStyleFor(t *testing.T) {
 		{"write", "wrote", "write"},
 		{"removed", "removed", "remove"},
 		{"remove", "removed", "remove"},
+		{"backed up & wrote", "backed up & wrote", ""},
+		{"diff", "drifted", "update"},
 		{"present", "present", ""},
 		{"copied", "copied", "copy"},
 		{"copy", "copied", "copy"},

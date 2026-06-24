@@ -22,6 +22,11 @@ var (
 	Dim    = color.New(color.FgHiBlack)
 )
 
+// LabelWidth is the fixed width of the status-line label column, sized to the
+// longest label dots emits ("backed up & wrote", 17 chars) so every row's name
+// column stays aligned. Other aligned output (e.g. error rows) shares it.
+const LabelWidth = 17
+
 // actionStyle is the icon, label and colour used to render a deploy action.
 type actionStyle struct {
 	icon  string
@@ -85,7 +90,7 @@ func StatusLine(action, name string, dryRun bool) {
 	}
 	fmt.Printf("  %s %s  %s\n",
 		Colorize(st.color, st.icon),
-		Colorize(st.color, fmt.Sprintf("%-16s", label)),
+		Colorize(st.color, fmt.Sprintf("%-*s", LabelWidth, label)),
 		name)
 }
 
