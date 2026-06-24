@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.2.0](https://github.com/pkuehne/dots/compare/v1.1.0...v1.2.0) (2026-06-24)
+
+
+### Features
+
+* add dots upgrade for binary self-upgrade ([#33](https://github.com/pkuehne/dots/issues/33)) ([c4e8f1b](https://github.com/pkuehne/dots/commit/c4e8f1be49632e250ff28841071b9710147ba424))
+* colour shell and snippet output ([#34](https://github.com/pkuehne/dots/issues/34)) ([453ab09](https://github.com/pkuehne/dots/commit/453ab09991955648f35c2a9b2920129dadf5c5b2))
+
 ## [1.1.0](https://github.com/pkuehne/dots/compare/dots-v1.0.1...dots-v1.1.0) (2026-06-23)
 
 
