@@ -10,6 +10,7 @@ import (
 	"github.com/pkuehne/dots/internal/config"
 	"github.com/pkuehne/dots/internal/fileutil"
 	"github.com/pkuehne/dots/internal/shell"
+	"github.com/pkuehne/dots/internal/ui"
 )
 
 var gitIncludeBlock = shell.MarkerStart + "\n" +
@@ -93,15 +94,16 @@ func GenerateConfig(cfg config.Config) string {
 
 // WriteManaged writes managed.gitconfig and inserts the [include] block into
 // ~/.gitconfig. Both steps are idempotent and report what they changed (or
-// with dryRun would change); unchanged files produce no output.
-func WriteManaged(cfg config.Config, dryRun bool) error {
+// with dryRun would change) as rows under sec; unchanged files produce no
+// output. sec may be nil, in which case rows print without a section header.
+func WriteManaged(cfg config.Config, dryRun bool, sec *ui.Section) error {
 	outPath := fileutil.Expand("~/.config/dots/git/managed.gitconfig")
 	changed, err := fileutil.WriteIfChanged(outPath, []byte(GenerateConfig(cfg)), 0o644, dryRun)
 	if err != nil {
 		return err
 	}
 	if changed {
-		fmt.Printf("  %s %s\n", verb("wrote", "write", dryRun), outPath)
+		sec.Status("wrote", outPath, dryRun)
 	}
 	gitconfig := fileutil.Expand("~/.gitconfig")
 	inserted, err := shell.InsertBlock(gitconfig, gitIncludeBlock, dryRun)
@@ -109,17 +111,9 @@ func WriteManaged(cfg config.Config, dryRun bool) error {
 		return err
 	}
 	if inserted {
-		fmt.Printf("  %s [include] in %s\n", verb("updated", "update", dryRun), gitconfig)
+		sec.Status("updated", "[include] → "+gitconfig, dryRun)
 	}
 	return nil
-}
-
-// verb returns the past-tense form, or "would <future>" in dry-run mode.
-func verb(past, future string, dryRun bool) string {
-	if dryRun {
-		return "would " + future
-	}
-	return past
 }
 
 // ShowManaged prints the would-be managed.gitconfig to stdout.

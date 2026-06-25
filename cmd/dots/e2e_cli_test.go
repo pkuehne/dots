@@ -152,7 +152,7 @@ note = "install it yourself"
 	assertContains(t, "apply installs missing tool", out, "missing-tool")
 	assertContains(t, "apply lists present tool", out, "present-tool")
 	assertContains(t, "apply tools summary", out, "Tools:")
-	assertContains(t, "apply tools present count", out, "1 already present")
+	assertContains(t, "apply tools present count", out, "1 present")
 }
 
 // TestE2E_RepoResolutionError asserts a missing repo path produces a helpful

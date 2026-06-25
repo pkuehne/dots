@@ -435,7 +435,7 @@ func TestWriteSnippets(t *testing.T) {
 		ToolsConfig: config.ToolsConfig{BinDir: "~/.local/bin"},
 	}
 
-	if err := WriteSnippets(cfg, false); err != nil {
+	if err := WriteSnippets(cfg, false, nil); err != nil {
 		t.Fatal(err)
 	}
 	for _, name := range []string{"010-env.sh", "020-path.sh", "050-fzf.sh"} {
@@ -457,7 +457,7 @@ func TestWriteSnippetsSkipsToolsWithoutShellConfig(t *testing.T) {
 		ToolsConfig: config.ToolsConfig{BinDir: "~/.local/bin"},
 	}
 
-	if err := WriteSnippets(cfg, false); err != nil {
+	if err := WriteSnippets(cfg, false, nil); err != nil {
 		t.Fatal(err)
 	}
 	for _, name := range []string{"050-jq.sh", "050-jq.zsh", "050-jq.bash"} {
@@ -480,7 +480,7 @@ func TestWriteSnippetsPerShellVariants(t *testing.T) {
 		ToolsConfig: config.ToolsConfig{BinDir: "~/.local/bin"},
 	}
 
-	if err := WriteSnippets(cfg, false); err != nil {
+	if err := WriteSnippets(cfg, false, nil); err != nil {
 		t.Fatal(err)
 	}
 	for name, want := range map[string]string{
@@ -514,7 +514,7 @@ func TestWriteSnippetsSingleSnippetWithoutPlaceholder(t *testing.T) {
 		ToolsConfig: config.ToolsConfig{BinDir: "~/.local/bin"},
 	}
 
-	if err := WriteSnippets(cfg, false); err != nil {
+	if err := WriteSnippets(cfg, false, nil); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(filepath.Join(dir, "050-direnv.sh")); err != nil {
@@ -586,7 +586,7 @@ func TestWriteSnippetsSkipsPlatformExcludedTool(t *testing.T) {
 		ToolsConfig: config.ToolsConfig{BinDir: "~/.local/bin"},
 	}
 
-	if err := WriteSnippets(cfg, false); err != nil {
+	if err := WriteSnippets(cfg, false, nil); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(filepath.Join(dir, "050-elsewhere.sh")); !os.IsNotExist(err) {
@@ -642,7 +642,7 @@ func TestWriteSnippetsDryRun(t *testing.T) {
 		Env:   config.EnvConfig{Vars: map[string]string{}},
 	}
 
-	if err := WriteSnippets(cfg, true); err != nil {
+	if err := WriteSnippets(cfg, true, nil); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(snippetDir); !os.IsNotExist(err) {
@@ -785,7 +785,7 @@ func TestWriteSnippetsDeploysUserSnippets(t *testing.T) {
 	}
 
 	out := captureStdout(t, func() {
-		if err := WriteSnippets(cfg, false); err != nil {
+		if err := WriteSnippets(cfg, false, nil); err != nil {
 			t.Error(err)
 		}
 	})
@@ -812,7 +812,7 @@ func TestWriteSnippetsWarnsOnOutOfRangePrefix(t *testing.T) {
 	}
 
 	out := captureStdout(t, func() {
-		if err := WriteSnippets(cfg, false); err != nil {
+		if err := WriteSnippets(cfg, false, nil); err != nil {
 			t.Error(err)
 		}
 	})
@@ -838,7 +838,7 @@ func TestWriteSnippetsDeploysJ2Verbatim(t *testing.T) {
 		RepoRoot: repo,
 	}
 
-	if err := WriteSnippets(cfg, false); err != nil {
+	if err := WriteSnippets(cfg, false, nil); err != nil {
 		t.Error(err)
 	}
 	got, err := os.ReadFile(filepath.Join(dir, "040-tmpl.sh.j2"))
@@ -860,7 +860,7 @@ func TestWriteSnippetsUserSnippetsDryRun(t *testing.T) {
 		RepoRoot: repo,
 	}
 
-	if err := WriteSnippets(cfg, true); err != nil {
+	if err := WriteSnippets(cfg, true, nil); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(snippetDir); !os.IsNotExist(err) {
