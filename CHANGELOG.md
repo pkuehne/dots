@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.3.0](https://github.com/pkuehne/dots/compare/v1.2.0...v1.3.0) (2026-06-25)
+
+
+### Features
+
+* track installed tool versions and assert repo refs ([#37](https://github.com/pkuehne/dots/issues/37)) ([aeb4e5c](https://github.com/pkuehne/dots/commit/aeb4e5cfa790a79c4c487a173153468752a10f61))
+
+
+### Bug Fixes
+
+* group apply output into consistent labeled sections ([#36](https://github.com/pkuehne/dots/issues/36)) ([15e2c10](https://github.com/pkuehne/dots/commit/15e2c10cb835bce392c7a9fa7ee4f360e62f7f3f))
+
 ## [1.2.0](https://github.com/pkuehne/dots/compare/v1.1.0...v1.2.0) (2026-06-24)
 
 
