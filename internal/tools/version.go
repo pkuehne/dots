@@ -6,6 +6,7 @@ import (
 
 	"github.com/pkuehne/dots/internal/config"
 	"github.com/pkuehne/dots/internal/lockfile"
+	"github.com/pkuehne/dots/internal/parallel"
 	"github.com/pkuehne/dots/internal/platform"
 	"github.com/pkuehne/dots/internal/ui"
 )
@@ -148,12 +149,7 @@ const DefaultJobs = 4
 func Update(cfg config.Config, names []string, tag, plat, arch string, lock *lockfile.Lock, dryRun bool, prog ui.Progress, jobs int) ([]UpdateResult, error) {
 	active := Filter(cfg.Tools, names, tag, platform.Platforms(), cfg.ActiveProfile)
 	results := make([]UpdateResult, len(active))
-	if jobs < 1 {
-		jobs = 1
-	}
 
-	sem := make(chan struct{}, jobs)
-	var wg sync.WaitGroup
 	var errMu sync.Mutex
 	var firstErr error
 	recordErr := func(err error) {
@@ -164,24 +160,16 @@ func Update(cfg config.Config, names []string, tag, plat, arch string, lock *loc
 		errMu.Unlock()
 	}
 
-	for i, t := range active {
+	parallel.Run(active, jobs, func(i int, t config.Tool) {
 		inst := githubInstall(t, plat)
 		if inst == nil {
-			// Untracked tools need no work and no GitHub call; record inline so
-			// they keep their config-order slot without spawning a goroutine.
+			// Untracked tools need no work and no GitHub call; record inline and
+			// open no task — they are left to their package manager.
 			results[i] = UpdateResult{Tool: t, Action: "untracked"}
-			continue
+			return
 		}
-
-		wg.Add(1)
-		sem <- struct{}{}
-		go func(i int, t config.Tool, inst config.ToolInstall) {
-			defer wg.Done()
-			defer func() { <-sem }()
-			results[i] = updateTool(cfg, t, inst, plat, arch, lock, dryRun, prog, recordErr)
-		}(i, t, *inst)
-	}
-	wg.Wait()
+		results[i] = updateTool(cfg, t, *inst, plat, arch, lock, dryRun, prog, recordErr)
+	})
 	return results, firstErr
 }
 

@@ -13,7 +13,6 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
-	"sync"
 
 	"github.com/mholt/archives"
 	"github.com/pkuehne/dots/internal/config"
@@ -21,6 +20,7 @@ import (
 	"github.com/pkuehne/dots/internal/fileutil"
 	"github.com/pkuehne/dots/internal/ghrelease"
 	"github.com/pkuehne/dots/internal/lockfile"
+	"github.com/pkuehne/dots/internal/parallel"
 	"github.com/pkuehne/dots/internal/platform"
 	"github.com/pkuehne/dots/internal/ui"
 )
@@ -169,46 +169,32 @@ type InstallResult struct {
 // how to surface failures (each is also recorded on its result).
 func InstallAll(cfg config.Config, list []config.Tool, plat, arch string, opts InstallOptions, prog ui.Progress, jobs int) []InstallResult {
 	results := make([]InstallResult, len(list))
-	if jobs < 1 {
-		jobs = 1
-	}
 
-	sem := make(chan struct{}, jobs)
-	var wg sync.WaitGroup
-
-	for i, t := range list {
-		wg.Add(1)
-		sem <- struct{}{}
-		go func(i int, t config.Tool) {
-			defer wg.Done()
-			defer func() { <-sem }()
-
-			task := prog.Task(t.Name)
-			o := opts
-			o.Task = task
-			if err := Install(t, cfg, plat, arch, o); err != nil {
-				task.Fail(err)
-				results[i] = InstallResult{Tool: t, Action: "failed", Err: err}
-				return
+	parallel.Run(list, jobs, func(i int, t config.Tool) {
+		task := prog.Task(t.Name)
+		o := opts
+		o.Task = task
+		if err := Install(t, cfg, plat, arch, o); err != nil {
+			task.Fail(err)
+			results[i] = InstallResult{Tool: t, Action: "failed", Err: err}
+			return
+		}
+		if opts.DryRun {
+			// Terminate the task so Progress.Wait returns; on a TTY dry-run
+			// prog is the transient bar renderer, so this clears the row.
+			task.Done("")
+			results[i] = InstallResult{Tool: t, Action: "would-install"}
+			return
+		}
+		detail := ""
+		if opts.Lock != nil {
+			if e, ok := opts.Lock.Get(t.Name); ok {
+				detail = e.Version
 			}
-			if opts.DryRun {
-				// Terminate the task so Progress.Wait returns; on a TTY dry-run
-				// prog is the transient bar renderer, so this clears the row.
-				task.Done("")
-				results[i] = InstallResult{Tool: t, Action: "would-install"}
-				return
-			}
-			detail := ""
-			if opts.Lock != nil {
-				if e, ok := opts.Lock.Get(t.Name); ok {
-					detail = e.Version
-				}
-			}
-			task.Done(detail)
-			results[i] = InstallResult{Tool: t, Action: "installed"}
-		}(i, t)
-	}
-	wg.Wait()
+		}
+		task.Done(detail)
+		results[i] = InstallResult{Tool: t, Action: "installed"}
+	})
 	return results
 }
 

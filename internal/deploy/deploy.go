@@ -14,7 +14,9 @@ import (
 	"github.com/pkuehne/dots/internal/config"
 	"github.com/pkuehne/dots/internal/errs"
 	"github.com/pkuehne/dots/internal/fileutil"
+	"github.com/pkuehne/dots/internal/parallel"
 	"github.com/pkuehne/dots/internal/secrets"
+	"github.com/pkuehne/dots/internal/ui"
 )
 
 // Options controls deploy behaviour.
@@ -34,25 +36,103 @@ type Result struct {
 	Entry  config.FileEntry
 	Action string // "linked", "copied", "unchanged", "skipped", "missing"
 	Err    error
+	// Live is set by ApplyAllLive when the entry was shown by a live progress
+	// task, so the caller can avoid re-printing it as a residual status line.
+	Live bool
 }
 
-// Apply deploys a single FileEntry and returns the result.
+// Apply deploys a single FileEntry and returns the result, without live
+// progress reporting. It is the convenience entry point for callers (and tests)
+// that do not drive a UI.
 func Apply(entry config.FileEntry, opts Options) Result {
+	return ApplyWithTask(entry, opts, ui.DiscardProgress().Task(""))
+}
+
+// ApplyWithTask deploys a single FileEntry, reporting its internal stages
+// (checking → backing up → linking/copying/decrypting) through task so a live
+// progress bar can advance. A skip, missing source, or dry-run prediction is
+// resolved by prepare before any stage is reported; an entry that turns out
+// unchanged is only discovered mid-execute, so it still reports the initial
+// "checking" stage before completing as a no-op.
+func ApplyWithTask(entry config.FileEntry, opts Options, task ui.Task) Result {
+	plan, terminal := prepare(entry, opts)
+	if terminal != nil {
+		return *terminal
+	}
+	return execute(entry, plan, opts, task)
+}
+
+// ApplyAll deploys all entries sequentially and returns one Result per entry.
+func ApplyAll(entries []config.FileEntry, opts Options) []Result {
+	results := make([]Result, len(entries))
+	for i, e := range entries {
+		results[i] = Apply(e, opts)
+	}
+	return results
+}
+
+// ApplyAllLive deploys all entries concurrently (up to jobs at a time), driving
+// a live progress task per entry that performs real work through prog. Entries
+// that are skipped, missing, or only predicted (dry-run) do no work and open no
+// task — the caller surfaces them as plain status lines. Results are returned in
+// entry order.
+func ApplyAllLive(entries []config.FileEntry, opts Options, prog ui.Progress, jobs int) []Result {
+	results := make([]Result, len(entries))
+	parallel.Run(entries, jobs, func(i int, e config.FileEntry) {
+		plan, terminal := prepare(e, opts)
+		if terminal != nil {
+			results[i] = *terminal
+			return
+		}
+		task := prog.Task(deployName(e))
+		res := execute(e, plan, opts, task)
+		res.Live = true
+		if res.Err != nil {
+			task.Fail(res.Err)
+		} else {
+			task.Done(res.Action)
+		}
+		results[i] = res
+	})
+	return results
+}
+
+// deployName is the short label shown on an entry's progress row: its
+// configured destination, matching the path printed in the status lines.
+func deployName(e config.FileEntry) string {
+	return e.Dst
+}
+
+// deployPlan is the prepared, validated work for one entry once every cheap,
+// non-mutating check has passed and the entry is known to need a live mutation.
+type deployPlan struct {
+	srcAbs string
+	dstAbs string
+	secret bool
+	link   bool
+}
+
+// prepare runs every cheap, non-mutating check for an entry — profile/platform
+// filters, mode validation, repo/home path-escape validation, source existence,
+// and (for dry-run) action prediction. It returns either a terminal *Result
+// (the entry is skipped/missing/errored, or dry-run wants only a prediction) or
+// a plan describing the mutation to execute; exactly one is non-nil.
+func prepare(entry config.FileEntry, opts Options) (deployPlan, *Result) {
 	// Profile filter.
 	if entry.Profile != "" && entry.Profile != opts.ActiveProfile {
-		return Result{Entry: entry, Action: "skipped"}
+		return deployPlan{}, &Result{Entry: entry, Action: "skipped"}
 	}
 
 	// Platform filter.
 	if len(entry.Only) > 0 && !intersects(entry.Only, opts.Platforms) {
-		return Result{Entry: entry, Action: "skipped"}
+		return deployPlan{}, &Result{Entry: entry, Action: "skipped"}
 	}
 
 	// Validate the mode string up front so an invalid one is reported (also in
 	// dry-run) before any side effect.
 	if entry.Mode != "" {
 		if _, err := parseFileMode(entry.Mode); err != nil {
-			return Result{Entry: entry, Err: err}
+			return deployPlan{}, &Result{Entry: entry, Err: err}
 		}
 	}
 
@@ -62,14 +142,14 @@ func Apply(entry config.FileEntry, opts Options) Result {
 	// Validate src is within the repo root.
 	repoAbs, err := filepath.Abs(opts.RepoRoot)
 	if err != nil {
-		return Result{Entry: entry, Err: err}
+		return deployPlan{}, &Result{Entry: entry, Err: err}
 	}
 	srcAbs, err := filepath.Abs(src)
 	if err != nil {
-		return Result{Entry: entry, Err: err}
+		return deployPlan{}, &Result{Entry: entry, Err: err}
 	}
 	if !strings.HasPrefix(srcAbs+string(filepath.Separator), repoAbs+string(filepath.Separator)) {
-		return Result{Entry: entry, Err: errs.New(
+		return deployPlan{}, &Result{Entry: entry, Err: errs.New(
 			fmt.Sprintf("refusing to deploy %q — source escapes repo root", entry.Src),
 			fmt.Sprintf("Resolved: %s\nRepo root: %s", srcAbs, repoAbs),
 		)}
@@ -80,23 +160,23 @@ func Apply(entry config.FileEntry, opts Options) Result {
 	if home == "" {
 		home, err = os.UserHomeDir()
 		if err != nil {
-			return Result{Entry: entry, Err: err}
+			return deployPlan{}, &Result{Entry: entry, Err: err}
 		}
 	}
 	dstParentAbs, err := filepath.Abs(filepath.Dir(dst))
 	if err != nil {
-		return Result{Entry: entry, Err: err}
+		return deployPlan{}, &Result{Entry: entry, Err: err}
 	}
 	dstAbs := filepath.Join(dstParentAbs, filepath.Base(dst))
 	if dstAbs != home && !strings.HasPrefix(dstAbs+string(filepath.Separator), home+string(filepath.Separator)) {
-		return Result{Entry: entry, Err: errs.New(
+		return deployPlan{}, &Result{Entry: entry, Err: errs.New(
 			fmt.Sprintf("refusing to deploy to %q — destination is outside $HOME", entry.Dst),
 			fmt.Sprintf("Resolved: %s\nHome: %s", dstAbs, home),
 		)}
 	}
 
 	if _, err := os.Stat(src); os.IsNotExist(err) {
-		return Result{Entry: entry, Action: "missing"}
+		return deployPlan{}, &Result{Entry: entry, Action: "missing"}
 	}
 
 	// Secrets: decrypt the .age source and write the plaintext to dst (always
@@ -104,39 +184,41 @@ func Apply(entry config.FileEntry, opts Options) Result {
 	if entry.Secret {
 		if opts.DryRun {
 			// Dry-run reports intent only; never invokes age.
-			return Result{Entry: entry, Action: "decrypt"}
+			return deployPlan{}, &Result{Entry: entry, Action: "decrypt"}
 		}
-		if err := fileutil.EnsureParent(dstAbs); err != nil {
-			return Result{Entry: entry, Err: err}
-		}
-		return applySecret(entry, srcAbs, dstAbs, opts)
+		return deployPlan{srcAbs: srcAbs, dstAbs: dstAbs, secret: true}, nil
 	}
 
 	useLink := shouldSymlink(entry, opts)
-
 	if opts.DryRun {
 		// Predict the action apply would take so preview and apply agree on a
 		// clean system. Mirrors the no-op detection in applySymlink/applyCopy.
-		return Result{Entry: entry, Action: predictAction(entry, srcAbs, dstAbs, useLink)}
+		return deployPlan{}, &Result{Entry: entry, Action: predictAction(entry, srcAbs, dstAbs, useLink)}
 	}
-
-	if err := fileutil.EnsureParent(dstAbs); err != nil {
-		return Result{Entry: entry, Err: err}
-	}
-
-	if useLink {
-		return applySymlink(entry, srcAbs, dstAbs)
-	}
-	return applyCopy(entry, srcAbs, dstAbs)
+	return deployPlan{srcAbs: srcAbs, dstAbs: dstAbs, link: useLink}, nil
 }
 
-// ApplyAll deploys all entries and returns one Result per entry.
-func ApplyAll(entries []config.FileEntry, opts Options) []Result {
-	results := make([]Result, len(entries))
-	for i, e := range entries {
-		results[i] = Apply(e, opts)
+// execute performs the validated mutation in plan, reporting stages through
+// task. It is only reached for entries that do real work (prepare returned no
+// terminal result), so each call advances and completes a live bar.
+func execute(entry config.FileEntry, plan deployPlan, opts Options, task ui.Task) Result {
+	// A small step budget so the bar visibly fills; Done forces 100% regardless
+	// of the exact count, so the steps need only be approximate.
+	task.SetTotal(3)
+	task.Stage("checking")
+	task.Advance(1)
+
+	if err := fileutil.EnsureParent(plan.dstAbs); err != nil {
+		return Result{Entry: entry, Err: err}
 	}
-	return results
+	switch {
+	case plan.secret:
+		return applySecret(entry, plan.srcAbs, plan.dstAbs, opts, task)
+	case plan.link:
+		return applySymlink(entry, plan.srcAbs, plan.dstAbs, task)
+	default:
+		return applyCopy(entry, plan.srcAbs, plan.dstAbs, task)
+	}
 }
 
 // Status returns the current deployment state of an entry without modifying
@@ -214,7 +296,7 @@ func predictAction(entry config.FileEntry, src, dst string, useLink bool) string
 	return "copy"
 }
 
-func applySymlink(entry config.FileEntry, src, dst string) Result {
+func applySymlink(entry config.FileEntry, src, dst string, task ui.Task) Result {
 	// Already a correct symlink → no-op.
 	if target, err := os.Readlink(dst); err == nil && target == src {
 		return Result{Entry: entry, Action: "unchanged"}
@@ -222,21 +304,25 @@ func applySymlink(entry config.FileEntry, src, dst string) Result {
 
 	// Something else exists at dst → back it up first.
 	if _, err := os.Lstat(dst); err == nil {
+		task.Stage("backing up")
 		if _, err := fileutil.Backup(dst); err != nil {
 			return Result{Entry: entry, Err: err}
 		}
 		if err := os.Remove(dst); err != nil {
 			return Result{Entry: entry, Err: err}
 		}
+		task.Advance(1)
 	}
 
+	task.Stage("linking")
 	if err := os.Symlink(src, dst); err != nil {
 		return Result{Entry: entry, Err: err}
 	}
+	task.Advance(1)
 	return Result{Entry: entry, Action: "linked"}
 }
 
-func applyCopy(entry config.FileEntry, src, dst string) Result {
+func applyCopy(entry config.FileEntry, src, dst string, task ui.Task) Result {
 	if info, err := os.Lstat(dst); err == nil {
 		// An existing symlink is always replaced with a real copy — even one
 		// pointing at identical content (hashing follows the link), otherwise
@@ -252,14 +338,17 @@ func applyCopy(entry config.FileEntry, src, dst string) Result {
 				return Result{Entry: entry, Action: "unchanged"}
 			}
 		}
+		task.Stage("backing up")
 		if _, err := fileutil.Backup(dst); err != nil {
 			return Result{Entry: entry, Err: err}
 		}
 		if err := os.Remove(dst); err != nil {
 			return Result{Entry: entry, Err: err}
 		}
+		task.Advance(1)
 	}
 
+	task.Stage("copying")
 	srcInfo, err := os.Stat(src)
 	if err != nil {
 		return Result{Entry: entry, Err: err}
@@ -277,6 +366,7 @@ func applyCopy(entry config.FileEntry, src, dst string) Result {
 	if _, err := io.Copy(out, in); err != nil {
 		return Result{Entry: entry, Err: err}
 	}
+	task.Advance(1)
 	if err := applyEntryMode(dst, entry.Mode); err != nil {
 		return Result{Entry: entry, Err: err}
 	}
@@ -286,12 +376,14 @@ func applyCopy(entry config.FileEntry, src, dst string) Result {
 // applySecret decrypts the .age source in-memory and writes the plaintext to
 // dst with mode 0600. If dst already holds the same plaintext it is left
 // untouched (unchanged); otherwise the existing file is backed up first.
-func applySecret(entry config.FileEntry, src, dst string, opts Options) Result {
+func applySecret(entry config.FileEntry, src, dst string, opts Options, task ui.Task) Result {
+	task.Stage("decrypting")
 	cfg := config.Config{Secrets: opts.Secrets}
 	plaintext, err := secrets.DecryptToMemory(src, cfg)
 	if err != nil {
 		return Result{Entry: entry, Err: err}
 	}
+	task.Advance(1)
 
 	if _, err := os.Lstat(dst); err == nil {
 		if existing, rerr := os.ReadFile(dst); rerr == nil && bytes.Equal(existing, plaintext) {
@@ -300,6 +392,7 @@ func applySecret(entry config.FileEntry, src, dst string, opts Options) Result {
 			}
 			return Result{Entry: entry, Action: "unchanged"}
 		}
+		task.Stage("backing up")
 		if _, err := fileutil.Backup(dst); err != nil {
 			return Result{Entry: entry, Err: err}
 		}
@@ -308,6 +401,7 @@ func applySecret(entry config.FileEntry, src, dst string, opts Options) Result {
 		}
 	}
 
+	task.Stage("writing")
 	if err := os.WriteFile(dst, plaintext, 0o600); err != nil {
 		return Result{Entry: entry, Err: err}
 	}

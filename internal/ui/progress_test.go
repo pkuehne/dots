@@ -29,6 +29,7 @@ func TestDiscardProgress(t *testing.T) {
 	task := p.Task("x")
 	task.Stage("resolving")
 	task.SetTotal(100)
+	task.Advance(1)
 	n, err := task.Write([]byte("hello"))
 	if err != nil || n != 5 {
 		t.Fatalf("Write = (%d, %v), want (5, nil)", n, err)
@@ -44,6 +45,8 @@ func TestLineProgressSatisfiesInterface(t *testing.T) {
 	var p Progress = &lineProgress{}
 	task := p.Task("tool")
 	task.Stage("downloading")
+	task.SetTotal(3)
+	task.Advance(1)
 	if n, err := task.Write([]byte("abc")); err != nil || n != 3 {
 		t.Fatalf("Write = (%d, %v), want (3, nil)", n, err)
 	}

@@ -36,9 +36,14 @@ type Task interface {
 	// Stage sets the short status shown while the work is in flight
 	// (e.g. "resolving", "downloading", "installing").
 	Stage(msg string)
-	// SetTotal declares the download size once known so the bar can fill; a
+	// SetTotal declares the work size once known so the bar can fill: a byte
+	// count for a download, or a step count for a discrete multi-step op. A
 	// non-positive total leaves the bar indeterminate.
 	SetTotal(total int64)
+	// Advance moves the bar forward by n units of a step-counted task (its total
+	// set via SetTotal). It is the discrete-step counterpart to Write, which
+	// advances by a number of transferred bytes.
+	Advance(n int64)
 	// Done marks the work finished, showing detail (e.g. "14.1.0 → 14.1.1").
 	Done(detail string)
 	// Fail marks the work failed, showing err.
@@ -117,11 +122,12 @@ func (b *barProgress) Task(name string) Task {
 type barTask struct {
 	bar *mpb.Bar
 
-	mu     sync.Mutex
-	stage  string
-	detail string
-	failed bool
-	total  int64
+	mu        sync.Mutex
+	stage     string
+	detail    string
+	failed    bool
+	total     int64
+	byteSized bool // set once Write is used, so the byte counter only shows for downloads
 }
 
 // statusText is the left-hand status: the current stage while in flight, a
@@ -140,11 +146,13 @@ func (t *barTask) statusText(st decor.Statistics) string {
 }
 
 // rightText shows download counters while a sized download is in flight, and
-// nothing otherwise (queued, indeterminate, complete or failed).
+// nothing otherwise (queued, indeterminate, complete, failed, or a step-counted
+// task whose total is a step count rather than bytes — humanBytes would render
+// misleading "1 B / 3 B" units there).
 func (t *barTask) rightText(st decor.Statistics) string {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	if t.failed || st.Completed || t.total <= 0 {
+	if t.failed || st.Completed || t.total <= 0 || !t.byteSized {
 		return ""
 	}
 	return fmt.Sprintf("%s / %s", humanBytes(st.Current), humanBytes(t.total))
@@ -166,9 +174,14 @@ func (t *barTask) SetTotal(total int64) {
 }
 
 func (t *barTask) Write(p []byte) (int, error) {
+	t.mu.Lock()
+	t.byteSized = true
+	t.mu.Unlock()
 	t.bar.IncrBy(len(p))
 	return len(p), nil
 }
+
+func (t *barTask) Advance(n int64) { t.bar.IncrBy(int(n)) }
 
 func (t *barTask) Done(detail string) {
 	t.mu.Lock()
@@ -208,6 +221,7 @@ func (t *lineTask) log(s string) {
 
 func (t *lineTask) Stage(msg string)            { t.log(msg) }
 func (t *lineTask) SetTotal(int64)              {}
+func (t *lineTask) Advance(int64)               {}
 func (t *lineTask) Write(p []byte) (int, error) { return len(p), nil }
 func (t *lineTask) Done(detail string)          { t.log("done " + detail) }
 func (t *lineTask) Fail(err error)              { t.log("failed: " + errText(err)) }
@@ -228,6 +242,7 @@ type discardTask struct{}
 
 func (discardTask) Stage(string)                {}
 func (discardTask) SetTotal(int64)              {}
+func (discardTask) Advance(int64)               {}
 func (discardTask) Write(p []byte) (int, error) { return len(p), nil }
 func (discardTask) Done(string)                 {}
 func (discardTask) Fail(error)                  {}
