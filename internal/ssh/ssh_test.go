@@ -135,7 +135,7 @@ func TestWriteManaged_DryRun(t *testing.T) {
 	t.Setenv("HOME", home)
 
 	cfg := config.Config{}
-	if err := WriteManaged(cfg, []string{"linux"}, true, nil); err != nil {
+	if err := WriteManaged(cfg, []string{"linux"}, true, false, nil); err != nil {
 		t.Fatalf("WriteManaged dry-run: %v", err)
 	}
 	// No files should be created.
@@ -153,7 +153,7 @@ func TestWriteManaged_CreatesFile(t *testing.T) {
 		{Host: "myhost", Options: map[string]string{"user": "alice"}},
 	}
 
-	if err := WriteManaged(cfg, []string{"linux"}, false, nil); err != nil {
+	if err := WriteManaged(cfg, []string{"linux"}, false, false, nil); err != nil {
 		t.Fatalf("WriteManaged: %v", err)
 	}
 
@@ -172,7 +172,7 @@ func TestWriteManaged_InsertsIncludeLine(t *testing.T) {
 	t.Setenv("HOME", home)
 
 	cfg := config.Config{}
-	if err := WriteManaged(cfg, []string{"linux"}, false, nil); err != nil {
+	if err := WriteManaged(cfg, []string{"linux"}, false, false, nil); err != nil {
 		t.Fatalf("WriteManaged: %v", err)
 	}
 
@@ -191,10 +191,10 @@ func TestWriteManaged_Idempotent(t *testing.T) {
 	t.Setenv("HOME", home)
 
 	cfg := config.Config{}
-	if err := WriteManaged(cfg, []string{"linux"}, false, nil); err != nil {
+	if err := WriteManaged(cfg, []string{"linux"}, false, false, nil); err != nil {
 		t.Fatal(err)
 	}
-	if err := WriteManaged(cfg, []string{"linux"}, false, nil); err != nil {
+	if err := WriteManaged(cfg, []string{"linux"}, false, false, nil); err != nil {
 		t.Fatal(err)
 	}
 
@@ -221,7 +221,7 @@ func TestWriteManaged_PrependToExisting(t *testing.T) {
 	}
 
 	cfg := config.Config{}
-	if err := WriteManaged(cfg, []string{"linux"}, false, nil); err != nil {
+	if err := WriteManaged(cfg, []string{"linux"}, false, false, nil); err != nil {
 		t.Fatal(err)
 	}
 
@@ -240,7 +240,7 @@ func TestUninit_RemovesIncludeLine(t *testing.T) {
 	t.Setenv("HOME", home)
 
 	cfg := config.Config{}
-	if err := WriteManaged(cfg, []string{"linux"}, false, nil); err != nil {
+	if err := WriteManaged(cfg, []string{"linux"}, false, false, nil); err != nil {
 		t.Fatal(err)
 	}
 	if err := Uninit(cfg, false); err != nil {
@@ -259,7 +259,7 @@ func TestUninit_DryRun(t *testing.T) {
 	t.Setenv("HOME", home)
 
 	cfg := config.Config{}
-	if err := WriteManaged(cfg, []string{"linux"}, false, nil); err != nil {
+	if err := WriteManaged(cfg, []string{"linux"}, false, false, nil); err != nil {
 		t.Fatal(err)
 	}
 	if err := Uninit(cfg, true); err != nil {

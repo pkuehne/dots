@@ -154,6 +154,19 @@ func (s *Section) Summary(text string) {
 	fmt.Printf("  %s\n", text)
 }
 
+// ChangeTally formats the "N wrote, M unchanged" summary line shared by the
+// shell, git, ssh, presets and login-shell sections, so each subsystem reports
+// its outcome the same way the file/repo/tool sections do. In dry-run "wrote"
+// becomes "to write" to match the predicted-action phrasing of the other
+// sections' tallies (e.g. repos' "to clone").
+func ChangeTally(wrote, unchanged int, dryRun bool) string {
+	verb := "wrote"
+	if dryRun {
+		verb = "to write"
+	}
+	return fmt.Sprintf("%d %s, %d unchanged", wrote, verb, unchanged)
+}
+
 // Warn prints a yellow, indented warning line (no fixed-width label column),
 // matching the visual weight of a status row's icon.
 func Warn(format string, args ...any) {
