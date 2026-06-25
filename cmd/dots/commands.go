@@ -386,8 +386,9 @@ func applyPresets(cfg config.Config, dryRun, summary bool) error {
 		// fzf key-binding paths differ per shell, and a .sh snippet is sourced
 		// by both bootstrappers, so write a shell-specific 030-fzf.<shell> for
 		// each. shell.Clean's `expected` map must list both so apply and clean
-		// stay in sync. These are dots-owned; applyPresetFile skips the write
-		// when unchanged and overwrites without backup (the content is generated).
+		// stay in sync. These are dots-owned: applyPresetFile skips the write when
+		// unchanged and overwrites dots-generated content in place, backing up
+		// only a pre-existing file that dots did not generate.
 		dir := fileutil.Expand(cfg.Shell.Dir)
 		if !dryRun {
 			if err := os.MkdirAll(dir, 0o755); err != nil {

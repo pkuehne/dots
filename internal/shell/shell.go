@@ -389,8 +389,9 @@ func writeSnippets(cfg config.Config, dryRun, summary bool, sec *ui.Section, c *
 }
 
 // InsertSourceLine inserts the marker-delimited bootstrapper block into the
-// zshrc and bashrc files listed in cfg.Shell, printing a row per changed rc file
-// under sec. It is the building block used by Apply; sec may be nil.
+// zshrc and bashrc files listed in cfg.Shell, printing a row per rc file under
+// sec ("wrote" when the block changed, otherwise "unchanged"). It is the
+// building block used by Apply; sec may be nil.
 func InsertSourceLine(cfg config.Config, dryRun bool, sec *ui.Section) error {
 	return insertSourceLine(cfg, dryRun, false, sec, &snippetCounts{})
 }
