@@ -14,6 +14,7 @@ import (
 	"bytes"
 	"os"
 	"sort"
+	"sync"
 	"time"
 
 	"github.com/BurntSushi/toml"
@@ -35,9 +36,12 @@ type Entry struct {
 }
 
 // Lock is the parsed lockfile plus the path it was loaded from. Each tool is a
-// top-level [<name>] table in the file.
+// top-level [<name>] table in the file. The mutex makes Get/Set/Remove/Save
+// safe to call concurrently, so a parallel batch of installs (`tools update`)
+// can record versions into one shared Lock.
 type Lock struct {
 	path  string
+	mu    sync.Mutex
 	Tools map[string]Entry
 }
 
@@ -69,6 +73,8 @@ func Load(path string) (*Lock, error) {
 
 // Get returns the recorded entry for name and whether it was present.
 func (l *Lock) Get(name string) (Entry, bool) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
 	e, ok := l.Tools[name]
 	return e, ok
 }
@@ -78,11 +84,15 @@ func (l *Lock) Set(name string, e Entry) {
 	if e.Installed == "" {
 		e.Installed = time.Now().UTC().Format("2006-01-02")
 	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
 	l.Tools[name] = e
 }
 
 // Remove deletes a recorded entry. It is a no-op when absent.
 func (l *Lock) Remove(name string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
 	delete(l.Tools, name)
 }
 
@@ -94,6 +104,9 @@ func (l *Lock) Save() error {
 	if err := fileutil.EnsureParent(l.path); err != nil {
 		return errs.NewTool("cannot create lockfile directory", err.Error())
 	}
+
+	l.mu.Lock()
+	defer l.mu.Unlock()
 
 	var buf bytes.Buffer
 	buf.WriteString(header)
@@ -113,6 +126,8 @@ func (l *Lock) Save() error {
 
 // Names returns the recorded tool names in sorted order.
 func (l *Lock) Names() []string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
 	names := make([]string, 0, len(l.Tools))
 	for n := range l.Tools {
 		names = append(names, n)

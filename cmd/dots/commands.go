@@ -154,21 +154,23 @@ func printUpgradeState(res selfupdate.Result) {
 
 func newApplyCmd() *cobra.Command {
 	var dryRun, forceCopy, summary bool
+	var jobs int
 
 	cmd := &cobra.Command{
 		Use:   "apply [files...]",
 		Short: "Deploy files and generate managed configs",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runApply(globals.cfg, args, dryRun, forceCopy, summary)
+			return runApply(globals.cfg, args, dryRun, forceCopy, summary, jobs)
 		},
 	}
 	cmd.Flags().BoolVarP(&dryRun, "dry-run", "n", false, "print actions without executing")
 	cmd.Flags().BoolVarP(&forceCopy, "copy", "c", false, "force copy mode instead of symlink")
 	cmd.Flags().BoolVarP(&summary, "summary", "s", false, "print only the summary line, not per-file status")
+	cmd.Flags().IntVarP(&jobs, "jobs", "j", tools.DefaultJobs, "max tools to install concurrently")
 	return cmd
 }
 
-func runApply(cfg config.Config, fileArgs []string, dryRun, forceCopy, summary bool) error {
+func runApply(cfg config.Config, fileArgs []string, dryRun, forceCopy, summary bool, jobs int) error {
 	filesOnly := len(fileArgs) > 0
 
 	opts := deploy.Options{
@@ -246,7 +248,7 @@ func runApply(cfg config.Config, fileArgs []string, dryRun, forceCopy, summary b
 	if err := applyPresets(cfg, dryRun); err != nil {
 		return err
 	}
-	if err := applyTools(cfg, dryRun, summary); err != nil {
+	if err := applyTools(cfg, dryRun, summary, jobs); err != nil {
 		return err
 	}
 	if err := applyLoginShell(cfg, dryRun); err != nil {
@@ -314,6 +316,28 @@ func printCloneResults(results []repos.CloneResult, dryRun, summary bool) {
 		verb = "to clone"
 	}
 	sec.Summary(fmt.Sprintf("%d %s, %d present", cloned, verb, present))
+}
+
+// printRepoUpdateResults renders the outcome of `dots repos update`. In a live
+// run the updated repos were already shown by their progress bars, so this only
+// echoes dry-run predictions and the skip reasons, plus a final tally.
+func printRepoUpdateResults(results []repos.UpdateResult, dryRun bool) {
+	updated := 0
+	for _, r := range results {
+		switch r.Action {
+		case "updated":
+			updated++
+		case "would-update":
+			fmt.Printf("  would update %s\n", r.Entry.Name)
+		case "skipped-missing":
+			fmt.Printf("  skipped %s (not cloned — run 'dots repos clone')\n", r.Entry.Name)
+		case "skipped-dirty":
+			fmt.Printf("  skipped %s (uncommitted local changes — commit or stash first)\n", r.Entry.Name)
+		}
+	}
+	if !dryRun && updated > 0 {
+		fmt.Printf("  %d updated\n", updated)
+	}
 }
 
 func applyPresets(cfg config.Config, dryRun bool) error {
@@ -424,7 +448,7 @@ func checkKnownTools(allTools []config.Tool, names []string) error {
 	return nil
 }
 
-func applyTools(cfg config.Config, dryRun, summary bool) error {
+func applyTools(cfg config.Config, dryRun, summary bool, applyJobs int) error {
 	if len(cfg.Tools) == 0 {
 		return nil
 	}
@@ -439,10 +463,13 @@ func applyTools(cfg config.Config, dryRun, summary bool) error {
 	opts := tools.InstallOptions{DryRun: dryRun, Lock: lock}
 	sec := ui.NewSection("Tools")
 	sec.Header()
-	installed, present, installErrors := 0, 0, 0
+
+	// List every already-present tool — so apply reports the full set rather
+	// than only the tools it touched (#26) — then install the rest concurrently
+	// with a live progress display below the header.
+	present := 0
+	var missing []config.Tool
 	for _, r := range results {
-		// List every tool — already-present ones included — so apply reports the
-		// full set rather than only the tools it touched (#26).
 		if r.Installed {
 			present++
 			if !summary {
@@ -450,20 +477,32 @@ func applyTools(cfg config.Config, dryRun, summary bool) error {
 			}
 			continue
 		}
-		if err := tools.Install(r.Tool, cfg, plat, arch, opts); err != nil {
-			fmt.Fprintf(os.Stderr, "  %s %s  %s: %v\n",
-				colorize(cRed, "✗"), colorize(cRed, fmt.Sprintf("%-*s", ui.LabelWidth, "error")), r.Tool.Name, err)
-			installErrors++
-		} else {
+		missing = append(missing, r.Tool)
+	}
+
+	prog := ui.NewProgress(dryRun)
+	installResults := tools.InstallAll(cfg, missing, plat, arch, opts, prog, applyJobs)
+	prog.Wait()
+	if !dryRun {
+		if err := lock.Save(); err != nil {
+			return err
+		}
+	}
+
+	installed, installErrors := 0, 0
+	for _, r := range installResults {
+		switch r.Action {
+		case "installed":
+			installed++
+		case "would-install":
 			installed++
 			if !summary {
 				sec.Status("installed", r.Tool.Name, dryRun)
 			}
-		}
-	}
-	if !dryRun {
-		if err := lock.Save(); err != nil {
-			return err
+		case "failed":
+			fmt.Fprintf(os.Stderr, "  %s %s  %s: %v\n",
+				colorize(cRed, "✗"), colorize(cRed, fmt.Sprintf("%-*s", ui.LabelWidth, "error")), r.Tool.Name, r.Err)
+			installErrors++
 		}
 	}
 	verb := "installed"
@@ -556,7 +595,7 @@ func newPreviewCmd() *cobra.Command {
 		Use:   "preview [files...]",
 		Short: "Alias for apply --dry-run",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runApply(globals.cfg, args, true, false, summary)
+			return runApply(globals.cfg, args, true, false, summary, tools.DefaultJobs)
 		},
 	}
 	cmd.Flags().BoolVarP(&summary, "summary", "s", false, "print only the summary line, not per-file status")
@@ -1217,6 +1256,7 @@ func newToolsCmd() *cobra.Command {
 
 	var installTag string
 	var installDryRun, installForce bool
+	var installJobs int
 	install := &cobra.Command{
 		Use:   "install [names...]",
 		Short: "Install missing tools",
@@ -1246,42 +1286,57 @@ func newToolsCmd() *cobra.Command {
 				return err
 			}
 			opts := tools.InstallOptions{DryRun: installDryRun, Force: installForce, Lock: lock}
-			installErrors := 0
-			for _, t := range filtered {
-				if err := tools.Install(t, globals.cfg, plat, arch, opts); err != nil {
-					fmt.Fprintf(os.Stderr, "  ✗ %s: %v\n", t.Name, err)
-					installErrors++
-				} else if installDryRun {
-					fmt.Printf("  would install %s\n", t.Name)
-				} else {
-					fmt.Printf("  ✓ installed %s\n", t.Name)
-				}
-			}
+			prog := ui.NewProgress(installDryRun)
+			results := tools.InstallAll(globals.cfg, filtered, plat, arch, opts, prog, installJobs)
+			prog.Wait()
 			if !installDryRun {
 				if err := lock.Save(); err != nil {
 					return err
 				}
 			}
+			// In a live run the bars already showed each install; here we only
+			// echo dry-run predictions and surface the first failure (its hint is
+			// what the user needs). Failures also appeared inline as aborted rows.
+			installErrors, installed := 0, 0
+			var firstErr error
+			for _, r := range results {
+				switch r.Action {
+				case "would-install":
+					fmt.Printf("  would install %s\n", r.Tool.Name)
+				case "installed":
+					installed++
+				case "failed":
+					installErrors++
+					if firstErr == nil {
+						firstErr = r.Err
+					}
+				}
+			}
+			if installed > 0 {
+				fmt.Printf("  %d installed\n", installed)
+			}
 			if installErrors > 0 {
-				return errs.New(fmt.Sprintf("%d tool(s) failed to install", installErrors),
-					"Check the error messages above for details.")
+				return firstErr
 			}
 			return nil
 		},
 	}
 	install.Flags().StringVar(&installTag, "tag", "", "filter by tag")
 	install.Flags().BoolVarP(&installDryRun, "dry-run", "n", false, "print actions without executing")
+	install.Flags().IntVarP(&installJobs, "jobs", "j", tools.DefaultJobs, "max tools to install concurrently")
 	install.Flags().BoolVarP(&installForce, "force", "f", false, "reinstall even if present")
 
 	var updateTag string
 	var updateDryRun bool
+	var updateJobs int
 	update := &cobra.Command{
 		Use:   "update [names...]",
 		Short: "Update version-tracked tools to their target version",
 		Long: "Reinstall github-method tools whose installed version differs from\n" +
 			"their target (a pinned `version`, or the latest release when version is\n" +
 			"unset or \"latest\"). Tools installed via a package manager are left to\n" +
-			"that manager.",
+			"that manager. Tools are processed concurrently with a live progress\n" +
+			"display (-j sets the concurrency).",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := checkKnownTools(globals.cfg.Tools, args); err != nil {
 				return err
@@ -1292,21 +1347,25 @@ func newToolsCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			results, err := tools.Update(globals.cfg, args, updateTag, plat, arch, lock, updateDryRun)
-			if err != nil {
-				return err
-			}
+			prog := ui.NewProgress(updateDryRun)
+			results, updateErr := tools.Update(globals.cfg, args, updateTag, plat, arch, lock, updateDryRun, prog, updateJobs)
+			prog.Wait()
 			if !updateDryRun {
 				if err := lock.Save(); err != nil {
 					return err
 				}
 			}
-			printUpdateResults(results)
-			return nil
+			if updateDryRun {
+				printUpdateResults(results)
+			} else {
+				printUpdateSummary(results)
+			}
+			return updateErr
 		},
 	}
 	update.Flags().StringVar(&updateTag, "tag", "", "filter by tag")
 	update.Flags().BoolVarP(&updateDryRun, "dry-run", "n", false, "print actions without executing")
+	update.Flags().IntVarP(&updateJobs, "jobs", "j", tools.DefaultJobs, "max tools to update concurrently")
 
 	var statusTag string
 	status := &cobra.Command{
@@ -1388,6 +1447,46 @@ func printUpdateResults(results []tools.UpdateResult) {
 	if changed == 0 {
 		fmt.Printf("\n%s All tracked tools are up to date.\n", colorize(cGreen, "✓"))
 	}
+}
+
+// printUpdateSummary renders the outcome of a live (non-dry-run) `tools update`.
+// The changed and failed tools were already shown live by their progress bars,
+// so this lists only the quiet ones (up-to-date, untracked) the live region
+// skipped, then a tally. When nothing changed it prints the all-current note.
+func printUpdateSummary(results []tools.UpdateResult) {
+	var updated, installed, failed int
+	for _, r := range results {
+		switch r.Action {
+		case "updated":
+			updated++
+		case "installed":
+			installed++
+		case "failed":
+			failed++
+		case "uptodate":
+			printStatusLine("up-to-date", fmt.Sprintf("%s %s", r.Tool.Name, r.To), false)
+		case "untracked":
+			fmt.Printf("  %s %s  %s\n", colorize(cDim, "·"),
+				colorize(cDim, fmt.Sprintf("%-*s", ui.LabelWidth, "untracked")), r.Tool.Name)
+		}
+	}
+
+	if updated == 0 && installed == 0 && failed == 0 {
+		fmt.Printf("\n%s All tracked tools are up to date.\n", colorize(cGreen, "✓"))
+		return
+	}
+
+	var parts []string
+	if updated > 0 {
+		parts = append(parts, fmt.Sprintf("%d updated", updated))
+	}
+	if installed > 0 {
+		parts = append(parts, fmt.Sprintf("%d installed", installed))
+	}
+	if failed > 0 {
+		parts = append(parts, fmt.Sprintf("%d failed", failed))
+	}
+	fmt.Printf("  %s\n", strings.Join(parts, ", "))
 }
 
 // printVersionStatus renders the table for `dots tools status`.
@@ -1477,14 +1576,20 @@ func newReposCmd() *cobra.Command {
 	clone.Flags().BoolVarP(&cloneDryRun, "dry-run", "n", false, "print actions without executing")
 
 	var updateDryRun bool
+	var updateJobs int
 	update := &cobra.Command{
 		Use:   "update [names...]",
 		Short: "Update cloned repos",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return repos.Update(globals.cfg, args, updateDryRun)
+			prog := ui.NewProgress(updateDryRun)
+			results, err := repos.Update(globals.cfg, args, updateDryRun, prog, updateJobs)
+			prog.Wait()
+			printRepoUpdateResults(results, updateDryRun)
+			return err
 		},
 	}
 	update.Flags().BoolVarP(&updateDryRun, "dry-run", "n", false, "print actions without executing")
+	update.Flags().IntVarP(&updateJobs, "jobs", "j", repos.DefaultJobs, "max repos to update concurrently")
 
 	status := &cobra.Command{
 		Use:   "status",

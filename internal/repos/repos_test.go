@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/pkuehne/dots/internal/config"
+	"github.com/pkuehne/dots/internal/ui"
 )
 
 // makeBarerepo initialises a bare git repo and returns its path.
@@ -232,29 +233,31 @@ func TestCloneOne_OnInstallHook(t *testing.T) {
 	}
 }
 
-// ---------- updateOne ----------
+// ---------- updateRepo ----------
+
+// runUpdateRepo drives updateRepo with a no-op progress and returns the action.
+func runUpdateRepo(t *testing.T, r config.RepoEntry, dryRun bool) string {
+	t.Helper()
+	res := updateRepo(r, dryRun, ui.DiscardProgress(), func(error) {})
+	if res.Err != nil {
+		t.Fatalf("updateRepo error: %v", res.Err)
+	}
+	return res.Action
+}
 
 func TestUpdateOne_Missing(t *testing.T) {
 	dst := filepath.Join(t.TempDir(), "nope")
 	r := config.RepoEntry{Name: "test", Repo: "user/test", Dst: dst}
-	result, err := updateOne(r, false)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if result != "missing" {
-		t.Fatalf("want 'missing', got %q", result)
+	if got := runUpdateRepo(t, r, false); got != "skipped-missing" {
+		t.Fatalf("want 'skipped-missing', got %q", got)
 	}
 }
 
 func TestUpdateOne_DryRun(t *testing.T) {
 	dst := t.TempDir()
 	r := config.RepoEntry{Name: "test", Repo: "user/test", Dst: dst}
-	result, err := updateOne(r, true)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if result != "ok" {
-		t.Fatalf("want 'ok', got %q", result)
+	if got := runUpdateRepo(t, r, true); got != "would-update" {
+		t.Fatalf("want 'would-update', got %q", got)
 	}
 }
 
@@ -287,12 +290,8 @@ func TestUpdateOne_Pull(t *testing.T) {
 	}
 
 	r.Dst = dst
-	result, err := updateOne(r, false)
-	if err != nil {
-		t.Fatalf("update failed: %v", err)
-	}
-	if result != "ok" {
-		t.Fatalf("want 'ok', got %q", result)
+	if got := runUpdateRepo(t, r, false); got != "updated" {
+		t.Fatalf("want 'updated', got %q", got)
 	}
 }
 
@@ -308,12 +307,8 @@ func TestUpdateOne_Shallow(t *testing.T) {
 	if _, err := cloneOne(r, false); err != nil {
 		t.Fatalf("clone: %v", err)
 	}
-	result, err := updateOne(r, false)
-	if err != nil {
-		t.Fatalf("shallow update failed: %v", err)
-	}
-	if result != "ok" {
-		t.Fatalf("want 'ok', got %q", result)
+	if got := runUpdateRepo(t, r, false); got != "updated" {
+		t.Fatalf("want 'updated', got %q", got)
 	}
 }
 
@@ -336,16 +331,63 @@ func TestUpdateOne_DirtySkipped(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	result, err := updateOne(r, false)
-	if err != nil {
-		t.Fatalf("update failed: %v", err)
-	}
-	if result != "dirty" {
-		t.Fatalf("want 'dirty', got %q", result)
+	if got := runUpdateRepo(t, r, false); got != "skipped-dirty" {
+		t.Fatalf("want 'skipped-dirty', got %q", got)
 	}
 	// The local change must survive.
 	if _, err := os.Stat(filepath.Join(dst, "local.txt")); err != nil {
 		t.Errorf("dirty update destroyed local change: %v", err)
+	}
+}
+
+// TestUpdate_ConcurrentMixed runs the exported Update over several repos at once
+// and asserts results keep config order with the right per-repo action: a clean
+// clone updates, a never-cloned repo is skipped-missing, and a dirty repo is
+// skipped-dirty.
+func TestUpdate_ConcurrentMixed(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+	bare := makeBareRepo(t)
+	makeLocalRepo(t, bare)
+
+	// clean: a fresh clone that will update cleanly.
+	cleanDst := filepath.Join(t.TempDir(), "clean")
+	clean := config.RepoEntry{Name: "clean", Repo: "file://" + bare, Dst: cleanDst}
+	if _, err := cloneOne(clean, false); err != nil {
+		t.Fatalf("clone clean: %v", err)
+	}
+
+	// dirty: cloned, then given an uncommitted change.
+	dirtyDst := filepath.Join(t.TempDir(), "dirty")
+	dirty := config.RepoEntry{Name: "dirty", Repo: "file://" + bare, Dst: dirtyDst}
+	if _, err := cloneOne(dirty, false); err != nil {
+		t.Fatalf("clone dirty: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dirtyDst, "wip.txt"), []byte("WIP"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// missing: never cloned.
+	missing := config.RepoEntry{Name: "missing", Repo: "file://" + bare, Dst: filepath.Join(t.TempDir(), "nope")}
+
+	cfg := config.Config{Repos: []config.RepoEntry{clean, dirty, missing}}
+	results, err := Update(cfg, nil, false, ui.DiscardProgress(), 4)
+	if err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+
+	want := []string{"updated", "skipped-dirty", "skipped-missing"}
+	if len(results) != len(want) {
+		t.Fatalf("got %d results, want %d", len(results), len(want))
+	}
+	for i, w := range want {
+		if results[i].Entry.Name != cfg.Repos[i].Name {
+			t.Errorf("result[%d] = %q, want config order %q", i, results[i].Entry.Name, cfg.Repos[i].Name)
+		}
+		if results[i].Action != w {
+			t.Errorf("%s action = %q, want %q", results[i].Entry.Name, results[i].Action, w)
+		}
 	}
 }
 
@@ -442,8 +484,8 @@ func TestUpdateOne_PinnedTag(t *testing.T) {
 
 	// Pin to v1 and update.
 	r.Ref = "v1"
-	if result, err := updateOne(r, false); err != nil || result != "ok" {
-		t.Fatalf("updateOne pinned: result=%q err=%v", result, err)
+	if got := runUpdateRepo(t, r, false); got != "updated" {
+		t.Fatalf("updateRepo pinned: got %q", got)
 	}
 	if got := gitC(t, dst, "rev-parse", "HEAD"); got != v1 {
 		t.Errorf("HEAD = %s, want pinned tag v1 %s", got, v1)

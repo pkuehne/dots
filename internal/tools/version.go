@@ -2,10 +2,12 @@ package tools
 
 import (
 	"strings"
+	"sync"
 
 	"github.com/pkuehne/dots/internal/config"
 	"github.com/pkuehne/dots/internal/lockfile"
 	"github.com/pkuehne/dots/internal/platform"
+	"github.com/pkuehne/dots/internal/ui"
 )
 
 // TrackState classifies how a tool's installed version compares to its target.
@@ -123,57 +125,105 @@ func VersionStatus(toolList []config.Tool, plat string, lock *lockfile.Lock) []V
 // UpdateResult is the outcome of processing one tool during `tools update`.
 type UpdateResult struct {
 	Tool   config.Tool
-	Action string // "updated", "installed", "uptodate", "untracked", or a dry-run "would-update"/"would-install"
+	Action string // "updated", "installed", "uptodate", "untracked", "failed", or a dry-run "would-update"/"would-install"
 	From   string // previous version (for updates)
 	To     string // new/target version
+	Err    error  // set when Action is "failed"
 }
+
+// DefaultJobs is the number of tools updated/installed concurrently when the
+// caller does not specify. The work is network-bound (a GitHub API call plus a
+// download per tool), so a handful of workers hides most of the latency without
+// hammering the API.
+const DefaultJobs = 4
 
 // Update brings version-tracked (github) tools in line with their target
 // version, reinstalling any whose recorded version differs from the target (or
-// that are not installed). Non-github tools are reported as "untracked" and
-// left to their package manager. The caller persists lock with Lock.Save().
-func Update(cfg config.Config, names []string, tag, plat, arch string, lock *lockfile.Lock, dryRun bool) ([]UpdateResult, error) {
+// that are not installed). Tools are processed concurrently (up to jobs at a
+// time), each reporting live progress through prog. Non-github tools are
+// reported as "untracked" and left to their package manager. Results are
+// returned in config order regardless of completion order; the caller persists
+// lock with Lock.Save(). The returned error is the first failure encountered
+// (other tools still run); per-tool failures are also recorded on their result.
+func Update(cfg config.Config, names []string, tag, plat, arch string, lock *lockfile.Lock, dryRun bool, prog ui.Progress, jobs int) ([]UpdateResult, error) {
 	active := Filter(cfg.Tools, names, tag, platform.Platforms(), cfg.ActiveProfile)
-	results := make([]UpdateResult, 0, len(active))
+	results := make([]UpdateResult, len(active))
+	if jobs < 1 {
+		jobs = 1
+	}
 
-	for _, t := range active {
+	sem := make(chan struct{}, jobs)
+	var wg sync.WaitGroup
+	var errMu sync.Mutex
+	var firstErr error
+	recordErr := func(err error) {
+		errMu.Lock()
+		if firstErr == nil {
+			firstErr = err
+		}
+		errMu.Unlock()
+	}
+
+	for i, t := range active {
 		inst := githubInstall(t, plat)
 		if inst == nil {
-			results = append(results, UpdateResult{Tool: t, Action: "untracked"})
+			// Untracked tools need no work and no GitHub call; record inline so
+			// they keep their config-order slot without spawning a goroutine.
+			results[i] = UpdateResult{Tool: t, Action: "untracked"}
 			continue
 		}
 
-		target, _, err := targetVersion(*inst)
-		if err != nil {
-			return results, err
-		}
-
-		var installed string
-		if entry, ok := lock.Get(t.Name); ok {
-			installed = entry.Version
-		}
-		present := toolIsInstalled(t)
-
-		if installed == target && present {
-			results = append(results, UpdateResult{Tool: t, Action: "uptodate", To: target})
-			continue
-		}
-
-		action := "updated"
-		would := "would-update"
-		if !present || installed == "" {
-			action, would = "installed", "would-install"
-		}
-		if dryRun {
-			results = append(results, UpdateResult{Tool: t, Action: would, From: installed, To: target})
-			continue
-		}
-
-		opts := InstallOptions{Force: true, Lock: lock}
-		if err := Install(t, cfg, plat, arch, opts); err != nil {
-			return results, err
-		}
-		results = append(results, UpdateResult{Tool: t, Action: action, From: installed, To: target})
+		wg.Add(1)
+		sem <- struct{}{}
+		go func(i int, t config.Tool, inst config.ToolInstall) {
+			defer wg.Done()
+			defer func() { <-sem }()
+			results[i] = updateTool(cfg, t, inst, plat, arch, lock, dryRun, prog, recordErr)
+		}(i, t, *inst)
 	}
-	return results, nil
+	wg.Wait()
+	return results, firstErr
+}
+
+// updateTool resolves one tool's target, decides whether it needs work, and
+// (outside dry-run) installs it, driving a progress task through its stages.
+func updateTool(cfg config.Config, t config.Tool, inst config.ToolInstall, plat, arch string, lock *lockfile.Lock, dryRun bool, prog ui.Progress, recordErr func(error)) UpdateResult {
+	target, _, err := targetVersion(inst)
+	if err != nil {
+		recordErr(err)
+		return UpdateResult{Tool: t, Action: "failed", Err: err}
+	}
+
+	var installed string
+	if entry, ok := lock.Get(t.Name); ok {
+		installed = entry.Version
+	}
+	present := toolIsInstalled(t)
+
+	if installed == target && present {
+		return UpdateResult{Tool: t, Action: "uptodate", To: target}
+	}
+
+	action, would := "updated", "would-update"
+	if !present || installed == "" {
+		action, would = "installed", "would-install"
+	}
+	if dryRun {
+		return UpdateResult{Tool: t, Action: would, From: installed, To: target}
+	}
+
+	task := prog.Task(t.Name)
+	opts := InstallOptions{Force: true, Lock: lock, Task: task}
+	if err := Install(t, cfg, plat, arch, opts); err != nil {
+		task.Fail(err)
+		recordErr(err)
+		return UpdateResult{Tool: t, Action: "failed", From: installed, To: target, Err: err}
+	}
+
+	detail := target
+	if action == "updated" {
+		detail = installed + " → " + target
+	}
+	task.Done(detail)
+	return UpdateResult{Tool: t, Action: action, From: installed, To: target}
 }

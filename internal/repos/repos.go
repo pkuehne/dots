@@ -7,11 +7,13 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"github.com/pkuehne/dots/internal/config"
 	"github.com/pkuehne/dots/internal/errs"
 	"github.com/pkuehne/dots/internal/fileutil"
 	"github.com/pkuehne/dots/internal/platform"
+	"github.com/pkuehne/dots/internal/ui"
 )
 
 // RepoState is the current state of a managed repo clone.
@@ -58,24 +60,99 @@ func Clone(cfg config.Config, names []string, dryRun bool) ([]CloneResult, error
 	return results, nil
 }
 
-// Update fetches and pulls repos that already exist.
-func Update(cfg config.Config, names []string, dryRun bool) error {
-	for _, r := range active(cfg, names) {
-		status, err := updateOne(r, dryRun)
-		if err != nil {
-			return err
+// UpdateResult is the outcome of processing one [[repo]] during an update pass.
+// Action is one of "updated", "would-update" (dry-run), "skipped-missing" (not
+// cloned), or "skipped-dirty" (uncommitted local changes). Printing is left to
+// the caller so the command renders uniform status lines.
+type UpdateResult struct {
+	Entry  config.RepoEntry
+	Action string
+	Err    error // set when Action is "failed"
+}
+
+// DefaultJobs is the number of repos updated concurrently when the caller does
+// not specify. Updates are network-bound (git fetch/pull), so a few workers
+// overlap the latency.
+const DefaultJobs = 4
+
+// Update fetches and pulls repos that already exist, processing up to jobs at a
+// time and reporting live progress through prog. Results are returned in config
+// order; the caller prints them. The returned error is the first failure
+// encountered (other repos still run).
+func Update(cfg config.Config, names []string, dryRun bool, prog ui.Progress, jobs int) ([]UpdateResult, error) {
+	repos := active(cfg, names)
+	results := make([]UpdateResult, len(repos))
+	if jobs < 1 {
+		jobs = 1
+	}
+
+	sem := make(chan struct{}, jobs)
+	var wg sync.WaitGroup
+	var errMu sync.Mutex
+	var firstErr error
+	recordErr := func(err error) {
+		errMu.Lock()
+		if firstErr == nil {
+			firstErr = err
 		}
-		switch status {
-		case "ok":
-			if dryRun {
-				fmt.Printf("  would update %s\n", r.Name)
-			} else {
-				fmt.Printf("  updated %s\n", r.Name)
-			}
-		case "missing":
-			fmt.Printf("  skipped %s (not cloned — run 'dots repos clone')\n", r.Name)
-		case "dirty":
-			fmt.Printf("  skipped %s (uncommitted local changes — commit or stash first)\n", r.Name)
+		errMu.Unlock()
+	}
+
+	for i, r := range repos {
+		wg.Add(1)
+		sem <- struct{}{}
+		go func(i int, r config.RepoEntry) {
+			defer wg.Done()
+			defer func() { <-sem }()
+			results[i] = updateRepo(r, dryRun, prog, recordErr)
+		}(i, r)
+	}
+	wg.Wait()
+	return results, firstErr
+}
+
+// updateRepo updates one repo, driving a progress task through its git stages.
+// A skip (not cloned, or dirty) is reported without a task since there is no
+// work to show.
+func updateRepo(r config.RepoEntry, dryRun bool, prog ui.Progress, recordErr func(error)) UpdateResult {
+	// Pre-check the cheap, non-mutating conditions before opening a live row so
+	// skipped repos do not flash a task.
+	dst := fileutil.Expand(r.Dst)
+	if _, err := os.Stat(dst); os.IsNotExist(err) {
+		return UpdateResult{Entry: r, Action: "skipped-missing"}
+	}
+	// A shallow update does `git reset --hard`, which would silently discard
+	// local modifications. Refuse to update a dirty repo so user work survives.
+	// (A normal `git pull` aborts on conflict on its own, so only shallow needs
+	// the guard — but checking unconditionally keeps the behaviour uniform.)
+	if out, err := gitOutput([]string{"status", "--porcelain"}, dst); err == nil && strings.TrimSpace(out) != "" {
+		return UpdateResult{Entry: r, Action: "skipped-dirty"}
+	}
+	if dryRun {
+		return UpdateResult{Entry: r, Action: "would-update"}
+	}
+
+	task := prog.Task(r.Name)
+	if err := updateOneWithTask(r, dst, task); err != nil {
+		task.Fail(err)
+		recordErr(err)
+		return UpdateResult{Entry: r, Action: "failed", Err: err}
+	}
+	task.Done("updated")
+	return UpdateResult{Entry: r, Action: "updated"}
+}
+
+// updateOneWithTask runs the mutating part of an update (the dirty/missing
+// guards already passed), reporting git stages through task.
+func updateOneWithTask(r config.RepoEntry, dst string, task ui.Task) error {
+	task.Stage("fetching")
+	if err := syncRef(r, dst); err != nil {
+		return err
+	}
+	if r.OnUpdate != "" {
+		task.Stage("running hook")
+		if err := shellRun(r.OnUpdate, dst); err != nil {
+			return err
 		}
 	}
 	return nil
@@ -188,41 +265,6 @@ func cloneOne(r config.RepoEntry, dryRun bool) (string, error) {
 
 	if r.OnInstall != "" {
 		if err := shellRun(r.OnInstall, dst); err != nil {
-			return "", err
-		}
-	}
-	return "ok", nil
-}
-
-// updateOne updates a single repo. Returns "ok", "missing", "dirty", or an
-// error.
-func updateOne(r config.RepoEntry, dryRun bool) (string, error) {
-	dst := fileutil.Expand(r.Dst)
-
-	if _, err := os.Stat(dst); os.IsNotExist(err) {
-		return "missing", nil
-	}
-
-	// A shallow update does `git reset --hard`, which would silently discard
-	// local modifications. Refuse to update a dirty repo so user work survives.
-	// (A normal `git pull` aborts on conflict on its own, so only shallow needs
-	// the guard — but checking unconditionally keeps the behaviour uniform.)
-	if out, err := gitOutput([]string{"status", "--porcelain"}, dst); err == nil {
-		if strings.TrimSpace(out) != "" {
-			return "dirty", nil
-		}
-	}
-
-	if dryRun {
-		return "ok", nil
-	}
-
-	if err := syncRef(r, dst); err != nil {
-		return "", err
-	}
-
-	if r.OnUpdate != "" {
-		if err := shellRun(r.OnUpdate, dst); err != nil {
 			return "", err
 		}
 	}

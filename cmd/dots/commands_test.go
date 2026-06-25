@@ -8,6 +8,7 @@ import (
 
 	"github.com/pkuehne/dots/internal/config"
 	"github.com/pkuehne/dots/internal/shell"
+	"github.com/pkuehne/dots/internal/tools"
 )
 
 // ── init ──────────────────────────────────────────────────────────────────────
@@ -442,7 +443,7 @@ func TestRunApply_FilesOnly_SkipsSubsystems(t *testing.T) {
 	}
 	// Shell is managed but apply is called with file args — subsystems should be skipped.
 	// Verify bootstrapper is NOT inserted since filesOnly=true.
-	if err := runApply(cfg, []string{".testrc"}, false, false, false); err != nil {
+	if err := runApply(cfg, []string{".testrc"}, false, false, false, tools.DefaultJobs); err != nil {
 		t.Fatalf("runApply filesOnly: %v", err)
 	}
 	zshData, _ := os.ReadFile(cfg.Shell.Zshrc)
@@ -456,7 +457,7 @@ func TestRunApply_NoFiles_RunsShell(t *testing.T) {
 	cfg := makeShellCfg(t)
 	cfg.RepoRoot = repoRoot
 
-	if err := runApply(cfg, nil, false, false, false); err != nil {
+	if err := runApply(cfg, nil, false, false, false, tools.DefaultJobs); err != nil {
 		t.Fatalf("runApply: %v", err)
 	}
 
@@ -473,7 +474,7 @@ func TestRunApply_UnmatchedArg_Errors(t *testing.T) {
 	cfg := makeShellCfg(t)
 	cfg.RepoRoot = repoRoot
 
-	err := runApply(cfg, []string{"definitely-not-managed"}, false, false, false)
+	err := runApply(cfg, []string{"definitely-not-managed"}, false, false, false, tools.DefaultJobs)
 	if err == nil {
 		t.Fatal("expected an error for an unmatched file arg")
 	}
