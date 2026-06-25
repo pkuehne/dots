@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.4.0](https://github.com/pkuehne/dots/compare/v1.3.0...v1.4.0) (2026-06-25)
+
+
+### Features
+
+* docker-style live progress for tools/repos update & install ([#39](https://github.com/pkuehne/dots/issues/39)) ([6cf9f30](https://github.com/pkuehne/dots/commit/6cf9f301a010bca4e6703ef267bb3c18232ea050))
+* live concurrent progress for apply file deploy and repo clone ([#41](https://github.com/pkuehne/dots/issues/41)) ([7824d0b](https://github.com/pkuehne/dots/commit/7824d0b6ac60e069b1c3d7a3c0045510135fb353))
+
+
+### Bug Fixes
+
+* render shell, git, ssh, presets sections like files/tools ([#40](https://github.com/pkuehne/dots/issues/40)) ([0c9d079](https://github.com/pkuehne/dots/commit/0c9d0799b1260f8751fca8ffd1e50f84300a3cec))
+
 ## [1.3.0](https://github.com/pkuehne/dots/compare/v1.2.0...v1.3.0) (2026-06-25)
 
 
