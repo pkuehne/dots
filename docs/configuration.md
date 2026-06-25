@@ -176,7 +176,12 @@ SHA is checked out exactly (detached); a pinned branch is reset to its remote
 tip so a moved branch is honoured. With `ref` unset or `"latest"`, dots tracks
 the default branch as before. A repo with uncommitted changes is skipped so
 local work is never discarded. Repos update concurrently with a live progress
-display (`-j/--jobs`, default 4), the same as tools.
+display (`-j/--jobs`, default 4), the same as tools — each finished row shows the
+ref the clone was brought to (the pinned ref, or a short SHA when tracking the
+default branch). `--dry-run` performs no writes but, like `tools update`,
+resolves each repo read-only (a local `rev-parse` plus a remote `git ls-remote`,
+no fetch) to predict `current → target` and mark repos already at their target
+as up to date.
 
 `dots repos status` shows `≠ ref <x>` when HEAD has drifted off a pinned ref,
 alongside the existing `missing`, `dirty`, and `behind N` states.

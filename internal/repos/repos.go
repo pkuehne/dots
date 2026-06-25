@@ -67,7 +67,10 @@ func Clone(cfg config.Config, names []string, dryRun bool) ([]CloneResult, error
 type UpdateResult struct {
 	Entry  config.RepoEntry
 	Action string
-	Err    error // set when Action is "failed"
+	Detail string // resolved ref/short-SHA the repo was brought to (Action "updated")
+	From   string // current short HEAD SHA (dry-run prediction)
+	To     string // target the ref resolves to: pinned ref name, else remote tip short SHA (dry-run)
+	Err    error  // set when Action is "failed"
 }
 
 // DefaultJobs is the number of repos updated concurrently when the caller does
@@ -129,7 +132,19 @@ func updateRepo(r config.RepoEntry, dryRun bool, prog ui.Progress, recordErr fun
 		return UpdateResult{Entry: r, Action: "skipped-dirty"}
 	}
 	if dryRun {
-		return UpdateResult{Entry: r, Action: "would-update"}
+		// Resolve where the repo is and where its ref points so the prediction
+		// shows current → target, mirroring tools update. The work is read-only
+		// (local rev-parse plus a remote ls-remote — no fetch, no checkout), so
+		// the zero-side-effects invariant holds. A transient row keeps the wait
+		// from being silent; it clears before the predicted-action table prints.
+		resolveTask := prog.Task(r.Name)
+		resolveTask.Stage("resolving")
+		from, to, equal := resolveUpdate(r, dst)
+		resolveTask.Done("")
+		if equal {
+			return UpdateResult{Entry: r, Action: "uptodate", From: from, To: to}
+		}
+		return UpdateResult{Entry: r, Action: "would-update", From: from, To: to}
 	}
 
 	task := prog.Task(r.Name)
@@ -138,8 +153,86 @@ func updateRepo(r config.RepoEntry, dryRun bool, prog ui.Progress, recordErr fun
 		recordErr(err)
 		return UpdateResult{Entry: r, Action: "failed", Err: err}
 	}
-	task.Done("updated")
-	return UpdateResult{Entry: r, Action: "updated"}
+	detail := refDescriptor(r, dst)
+	task.Done(detail)
+	return UpdateResult{Entry: r, Action: "updated", Detail: detail}
+}
+
+// refDescriptor returns a short, human-readable identifier for the commit a repo
+// was brought to: the pinned ref when one is configured, otherwise the short
+// HEAD SHA so a default-branch ("latest") repo still reports a concrete version.
+// It mirrors the version detail tools update shows, so both commands read alike.
+func refDescriptor(r config.RepoEntry, dst string) string {
+	if !isLatestRef(r.Ref) {
+		return r.Ref
+	}
+	if out, err := gitOutput([]string{"rev-parse", "--short", "HEAD"}, dst); err == nil {
+		return strings.TrimSpace(out)
+	}
+	return ""
+}
+
+// resolveUpdate inspects, read-only, where a clean clone currently sits and
+// where its configured ref points, for a dry-run prediction. from is the local
+// short HEAD SHA; to is the pinned ref name when one is set, otherwise the
+// remote default-branch tip as a short SHA; equal reports whether HEAD already
+// matches the target so the caller can mark an up-to-date repo. Everything here
+// is non-mutating: a local rev-parse plus a remote `git ls-remote` (no fetch, no
+// checkout), the git analogue of resolving a tool's latest release.
+func resolveUpdate(r config.RepoEntry, dst string) (from, to string, equal bool) {
+	headFull := ""
+	if out, err := gitOutput([]string{"rev-parse", "HEAD"}, dst); err == nil {
+		headFull = strings.TrimSpace(out)
+	}
+	from = shortSHA(headFull)
+
+	ref := "HEAD"
+	if !isLatestRef(r.Ref) {
+		ref = r.Ref
+	}
+	targetFull := remoteRefSHA(dst, ref)
+	equal = targetFull != "" && targetFull == headFull
+
+	if !isLatestRef(r.Ref) {
+		to = r.Ref // a pinned tag/branch reads better by name than by SHA
+	} else {
+		to = shortSHA(targetFull)
+	}
+	return from, to, equal
+}
+
+// remoteRefSHA returns the full commit SHA that ref resolves to on origin, via a
+// read-only ls-remote. For an annotated tag it prefers the peeled (^{}) line so
+// the result is the underlying commit, matching what a checkout would land on.
+// Returns "" when the ref cannot be resolved (offline, or no such ref).
+func remoteRefSHA(dst, ref string) string {
+	out, err := gitOutput([]string{"ls-remote", "origin", ref}, dst)
+	if err != nil {
+		return ""
+	}
+	first := ""
+	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 2 {
+			continue
+		}
+		if strings.HasSuffix(fields[1], "^{}") {
+			return fields[0]
+		}
+		if first == "" {
+			first = fields[0]
+		}
+	}
+	return first
+}
+
+// shortSHA truncates a full SHA to the conventional 7 characters, leaving
+// already-short or empty values untouched.
+func shortSHA(sha string) string {
+	if len(sha) > 7 {
+		return sha[:7]
+	}
+	return sha
 }
 
 // updateOneWithTask runs the mutating part of an update (the dirty/missing

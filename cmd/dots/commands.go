@@ -318,26 +318,47 @@ func printCloneResults(results []repos.CloneResult, dryRun, summary bool) {
 	sec.Summary(fmt.Sprintf("%d %s, %d present", cloned, verb, present))
 }
 
-// printRepoUpdateResults renders the outcome of `dots repos update`. In a live
-// run the updated repos were already shown by their progress bars, so this only
-// echoes dry-run predictions and the skip reasons, plus a final tally.
+// printRepoUpdateResults renders the outcome of `dots repos update`, mirroring
+// `tools update`: coloured, aligned status rows with the resolved ref. In a live
+// run the updated repos were already shown by their progress bars, so this lists
+// only the rows the live region skipped (dry-run predictions, skip reasons,
+// failures) plus a final tally.
 func printRepoUpdateResults(results []repos.UpdateResult, dryRun bool) {
-	updated := 0
+	updated, failed := 0, 0
 	for _, r := range results {
 		switch r.Action {
 		case "updated":
+			// Already shown live by the repo's progress bar.
 			updated++
 		case "would-update":
-			fmt.Printf("  would update %s\n", r.Entry.Name)
+			printStatusLine("update", fmt.Sprintf("%s %s → %s", r.Entry.Name, displayVer(r.From), displayVer(r.To)), true)
+		case "uptodate":
+			printStatusLine("up-to-date", fmt.Sprintf("%s %s", r.Entry.Name, displayVer(r.To)), false)
 		case "skipped-missing":
-			fmt.Printf("  skipped %s (not cloned — run 'dots repos clone')\n", r.Entry.Name)
+			printStatusLine("skipped (not cloned — run 'dots repos clone')", r.Entry.Name, false)
 		case "skipped-dirty":
-			fmt.Printf("  skipped %s (uncommitted local changes — commit or stash first)\n", r.Entry.Name)
+			printStatusLine("skipped (uncommitted local changes — commit or stash first)", r.Entry.Name, false)
+		case "failed":
+			fmt.Printf("  %s %s  %s: %v\n", colorize(cRed, "✗"),
+				colorize(cRed, fmt.Sprintf("%-*s", ui.LabelWidth, "failed")), r.Entry.Name, r.Err)
+			failed++
 		}
 	}
-	if !dryRun && updated > 0 {
-		fmt.Printf("  %d updated\n", updated)
+	if dryRun {
+		return
 	}
+	if updated == 0 && failed == 0 {
+		fmt.Printf("\n%s All repos are up to date.\n", colorize(cGreen, "✓"))
+		return
+	}
+	var parts []string
+	if updated > 0 {
+		parts = append(parts, fmt.Sprintf("%d updated", updated))
+	}
+	if failed > 0 {
+		parts = append(parts, fmt.Sprintf("%d failed", failed))
+	}
+	fmt.Printf("  %s\n", strings.Join(parts, ", "))
 }
 
 func applyPresets(cfg config.Config, dryRun bool) error {
