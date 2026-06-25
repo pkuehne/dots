@@ -49,39 +49,46 @@ type Progress interface {
 	Wait()
 }
 
-// NewProgress picks the renderer for the current context: nothing in dry-run
-// (the command prints the predicted list), a live mpb container on a terminal,
-// or plain line logging otherwise.
+// NewProgress picks the renderer for the current context. On a terminal it is a
+// live mpb container — and in dry-run the bars are transient (each row clears on
+// completion) so the read-only resolve phase shows live without leaving residue
+// before the command prints its predicted-action table. Off a terminal it is
+// plain line logging, except dry-run which stays silent (the table is enough).
 func NewProgress(dryRun bool) Progress {
-	if dryRun {
+	tty := isatty.IsTerminal(os.Stdout.Fd()) || isatty.IsCygwinTerminal(os.Stdout.Fd())
+	switch {
+	case tty:
+		return newBarProgress(dryRun)
+	case dryRun:
 		return discardProgress{}
+	default:
+		return &lineProgress{}
 	}
-	if isatty.IsTerminal(os.Stdout.Fd()) || isatty.IsCygwinTerminal(os.Stdout.Fd()) {
-		return newBarProgress()
-	}
-	return &lineProgress{}
 }
 
 // ── mpb-backed live bars ───────────────────────────────────────────────────────
 
 type barProgress struct {
-	p *mpb.Progress
+	p         *mpb.Progress
+	transient bool // remove each bar once it completes (dry-run resolve phase)
 }
 
-func newBarProgress() *barProgress {
-	return &barProgress{p: mpb.New(
-		mpb.WithWidth(60),
-		mpb.WithRefreshRate(120*time.Millisecond),
-		mpb.WithAutoRefresh(),
-	)}
+func newBarProgress(transient bool) *barProgress {
+	return &barProgress{
+		transient: transient,
+		p: mpb.New(
+			mpb.WithWidth(60),
+			mpb.WithRefreshRate(120*time.Millisecond),
+			mpb.WithAutoRefresh(),
+		),
+	}
 }
 
 func (b *barProgress) Wait() { b.p.Wait() }
 
 func (b *barProgress) Task(name string) Task {
 	t := &barTask{stage: "queued"}
-	t.bar = b.p.New(0,
-		mpb.BarStyle().Lbound(" ").Filler("━").Tip("━").Padding("─").Rbound(" "),
+	opts := []mpb.BarOption{
 		mpb.BarWidth(24),
 		mpb.PrependDecorators(
 			decor.Name(name, decor.WC{C: decor.DSyncSpaceR}),
@@ -90,6 +97,13 @@ func (b *barProgress) Task(name string) Task {
 		mpb.AppendDecorators(
 			decor.Any(t.rightText),
 		),
+	}
+	if b.transient {
+		opts = append(opts, mpb.BarRemoveOnComplete())
+	}
+	t.bar = b.p.New(0,
+		mpb.BarStyle().Lbound(" ").Filler("━").Tip("━").Padding("─").Rbound(" "),
+		opts...,
 	)
 	return t
 }

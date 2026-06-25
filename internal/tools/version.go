@@ -188,7 +188,21 @@ func Update(cfg config.Config, names []string, tag, plat, arch string, lock *loc
 // updateTool resolves one tool's target, decides whether it needs work, and
 // (outside dry-run) installs it, driving a progress task through its stages.
 func updateTool(cfg config.Config, t config.Tool, inst config.ToolInstall, plat, arch string, lock *lockfile.Lock, dryRun bool, prog ui.Progress, recordErr func(error)) UpdateResult {
+	// Resolving a "latest" target is a GitHub round-trip. In dry-run we surface a
+	// transient "resolving" row so the wait isn't silent; the resolved row clears
+	// before the command prints its predicted-action table. The live (install)
+	// path lets Install drive the bar through its own stages instead.
+	var resolveTask ui.Task
+	if dryRun {
+		resolveTask = prog.Task(t.Name)
+		resolveTask.Stage("resolving")
+	}
 	target, _, err := targetVersion(inst)
+	if resolveTask != nil {
+		// Clear the transient row in either case; the predicted-action table is
+		// the single source of truth, including for resolve failures.
+		resolveTask.Done("")
+	}
 	if err != nil {
 		recordErr(err)
 		return UpdateResult{Tool: t, Action: "failed", Err: err}

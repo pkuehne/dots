@@ -1422,7 +1422,7 @@ func newToolsCmd() *cobra.Command {
 
 // printUpdateResults renders the outcome of `dots tools update`.
 func printUpdateResults(results []tools.UpdateResult) {
-	changed := 0
+	changed, failed := 0, 0
 	for _, r := range results {
 		switch r.Action {
 		case "updated":
@@ -1439,12 +1439,16 @@ func printUpdateResults(results []tools.UpdateResult) {
 			changed++
 		case "uptodate":
 			printStatusLine("up-to-date", fmt.Sprintf("%s %s", r.Tool.Name, r.To), false)
+		case "failed":
+			fmt.Printf("  %s %s  %s: %v\n", colorize(cRed, "✗"),
+				colorize(cRed, fmt.Sprintf("%-*s", ui.LabelWidth, "failed")), r.Tool.Name, r.Err)
+			failed++
 		case "untracked":
 			fmt.Printf("  %s %s  %s\n", colorize(cDim, "·"),
 				colorize(cDim, fmt.Sprintf("%-*s", ui.LabelWidth, "untracked")), r.Tool.Name)
 		}
 	}
-	if changed == 0 {
+	if changed == 0 && failed == 0 {
 		fmt.Printf("\n%s All tracked tools are up to date.\n", colorize(cGreen, "✓"))
 	}
 }

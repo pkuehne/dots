@@ -32,8 +32,15 @@ pair the work packages depend on, with three implementations chosen by
   installing) and, for downloads, a byte bar;
 - a plain line logger for non-terminals (pipes, CI) so captured output stays
   ANSI-free;
-- a no-op for dry-run, where the command prints the predicted action list
-  instead.
+- a no-op for piped dry-run, where the predicted-action table is the whole
+  output.
+
+On a terminal, dry-run still uses the bar renderer but in **transient** mode:
+resolving a `latest` target is a read-only GitHub round-trip, so the resolve
+phase is shown live (one short row per tool) and each row clears on completion,
+leaving no residue before the command prints its predicted-action table. Only
+the writes (download, install, lockfile) are suppressed in dry-run, never the
+read-only resolve feedback.
 
 `Task` implements `io.Writer` so it doubles as the download byte sink. Work
 packages never import mpb directly.
@@ -64,10 +71,12 @@ mutex so a parallel batch of github installs can record versions into one shared
   `repos.updateOne` was folded into `updateRepo`.
 - `-j/--jobs` is available on `tools update`, `tools install`, `repos update`,
   and `apply` (default 4).
-- Dry-run still renders nothing live and performs zero side effects; non-terminal
-  output stays plain. Resolve/download/install failures abort that item's row
-  (or log a failure line) while the rest of the batch continues; the first error
-  is returned so its hint still surfaces.
+- Dry-run performs zero side effects but, on a terminal, shows the read-only
+  resolve phase as transient rows that clear before the predicted-action table
+  (piped dry-run stays table-only). Resolve/download/install failures abort that
+  item's row (or log a failure line) while the rest of the batch continues; the
+  first error is returned so its hint still surfaces, and the predicted-action
+  table reports each failure rather than claiming everything is up to date.
 - `dots upgrade` (selfupdate) passes a nil sink for now — a progress bar there is
   a possible follow-up.
 

@@ -140,9 +140,12 @@ Tools installed by a package manager are reported as `untracked` and left alone.
 Updates and installs run concurrently with a live, docker-style progress
 display — one row per tool advancing through resolving → downloading →
 installing. `-j/--jobs` sets how many run at once (default 4). The display is
-shown only on a terminal; piped output degrades to plain lines and `--dry-run`
-prints the predicted actions with no progress bars. `dots tools install` and the
-install phase of `dots apply` share the same display and `-j` flag.
+shown only on a terminal; piped output degrades to plain lines. `--dry-run`
+performs no writes, but on a terminal it still shows the read-only version
+resolve live (transient rows that clear) before printing the predicted
+`current → target` actions; piped dry-run prints just the table. `dots tools
+install` and the install phase of `dots apply` share the same display and `-j`
+flag.
 
 ## Repositories — `[[repo]]`
 
