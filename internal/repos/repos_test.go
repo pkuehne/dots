@@ -386,3 +386,109 @@ func TestRepoState_Exists(t *testing.T) {
 		t.Fatal("current branch should be set")
 	}
 }
+
+// ---------- ref tracking ----------
+
+func TestIsLatestRef(t *testing.T) {
+	for _, ref := range []string{"", "latest", "LATEST", "Latest"} {
+		if !isLatestRef(ref) {
+			t.Errorf("isLatestRef(%q) = false, want true", ref)
+		}
+	}
+	for _, ref := range []string{"v1.2.3", "main", "abc123"} {
+		if isLatestRef(ref) {
+			t.Errorf("isLatestRef(%q) = true, want false", ref)
+		}
+	}
+}
+
+// gitC runs git -C dir args and fails the test on error, returning trimmed stdout.
+func gitC(t *testing.T, dir string, args ...string) string {
+	t.Helper()
+	out, err := exec.Command("git", append([]string{"-C", dir}, args...)...).CombinedOutput()
+	if err != nil {
+		t.Fatalf("git %v: %s", args, out)
+	}
+	return strings.TrimSpace(string(out))
+}
+
+// TestUpdateOne_PinnedTag asserts that a pinned ref checks out exactly that tag,
+// even when the default branch has moved on past it.
+func TestUpdateOne_PinnedTag(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+	bare := makeBareRepo(t)
+	local := makeLocalRepo(t, bare)
+
+	// Tag the initial commit as v1 and push the tag.
+	v1 := gitC(t, local, "rev-parse", "HEAD")
+	gitC(t, local, "-c", "tag.gpgSign=false", "tag", "-m", "v1", "v1")
+	gitC(t, local, "push", "origin", "v1")
+
+	// Move the default branch forward so HEAD != v1.
+	gitC(t, local, "commit", "--allow-empty", "-m", "second")
+	gitC(t, local, "push")
+
+	// Clone (tracks the default branch tip, which is the second commit).
+	dst := filepath.Join(t.TempDir(), "clone")
+	r := config.RepoEntry{Name: "test", Repo: "file://" + bare, Dst: dst}
+	if _, err := cloneOne(r, false); err != nil {
+		t.Fatalf("setup clone: %v", err)
+	}
+	if got := gitC(t, dst, "rev-parse", "HEAD"); got == v1 {
+		t.Fatal("precondition: clone should not already be at v1")
+	}
+
+	// Pin to v1 and update.
+	r.Ref = "v1"
+	if result, err := updateOne(r, false); err != nil || result != "ok" {
+		t.Fatalf("updateOne pinned: result=%q err=%v", result, err)
+	}
+	if got := gitC(t, dst, "rev-parse", "HEAD"); got != v1 {
+		t.Errorf("HEAD = %s, want pinned tag v1 %s", got, v1)
+	}
+
+	// repoState should report the ref and that HEAD is on target.
+	s, err := repoState(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.Ref != "v1" || !s.OnTarget {
+		t.Errorf("state Ref=%q OnTarget=%v, want v1/true", s.Ref, s.OnTarget)
+	}
+}
+
+// TestRepoState_RefDrift reports a pinned ref that HEAD is not sitting at.
+func TestRepoState_RefDrift(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+	bare := makeBareRepo(t)
+	local := makeLocalRepo(t, bare)
+	gitC(t, local, "-c", "tag.gpgSign=false", "tag", "-m", "v1", "v1")
+	gitC(t, local, "push", "origin", "v1")
+	gitC(t, local, "commit", "--allow-empty", "-m", "second")
+	gitC(t, local, "push")
+
+	dst := filepath.Join(t.TempDir(), "clone")
+	r := config.RepoEntry{Name: "test", Repo: "file://" + bare, Dst: dst, Ref: "v1"}
+	if _, err := cloneOne(r, false); err != nil {
+		t.Fatalf("setup clone: %v", err)
+	}
+	// cloneOne pins --branch v1, so it should already be on target; move HEAD to
+	// the default branch tip to simulate drift.
+	gitC(t, dst, "fetch", "origin")
+	gitC(t, dst, "checkout", "--detach", "origin/HEAD")
+
+	s, err := repoState(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.Ref != "v1" {
+		t.Fatalf("Ref = %q, want v1", s.Ref)
+	}
+	if s.OnTarget {
+		t.Error("OnTarget = true, want false (HEAD drifted off the pinned tag)")
+	}
+}

@@ -16,6 +16,7 @@ import (
 	"github.com/pkuehne/dots/internal/errs"
 	"github.com/pkuehne/dots/internal/fileutil"
 	gogit "github.com/pkuehne/dots/internal/git"
+	"github.com/pkuehne/dots/internal/lockfile"
 	"github.com/pkuehne/dots/internal/platform"
 	"github.com/pkuehne/dots/internal/presets"
 	"github.com/pkuehne/dots/internal/repos"
@@ -431,7 +432,11 @@ func applyTools(cfg config.Config, dryRun, summary bool) error {
 	arch := platform.Arch()
 	active := tools.Filter(cfg.Tools, nil, "", platform.Platforms(), cfg.ActiveProfile)
 	results := tools.Check(active)
-	opts := tools.InstallOptions{DryRun: dryRun}
+	lock, err := lockfile.Load("")
+	if err != nil {
+		return err
+	}
+	opts := tools.InstallOptions{DryRun: dryRun, Lock: lock}
 	sec := ui.NewSection("Tools")
 	sec.Header()
 	installed, present, installErrors := 0, 0, 0
@@ -454,6 +459,11 @@ func applyTools(cfg config.Config, dryRun, summary bool) error {
 			if !summary {
 				sec.Status("installed", r.Tool.Name, dryRun)
 			}
+		}
+	}
+	if !dryRun {
+		if err := lock.Save(); err != nil {
+			return err
 		}
 	}
 	verb := "installed"
@@ -1231,7 +1241,11 @@ func newToolsCmd() *cobra.Command {
 				fmt.Println("  All tools are already installed.")
 				return nil
 			}
-			opts := tools.InstallOptions{DryRun: installDryRun}
+			lock, err := lockfile.Load("")
+			if err != nil {
+				return err
+			}
+			opts := tools.InstallOptions{DryRun: installDryRun, Force: installForce, Lock: lock}
 			installErrors := 0
 			for _, t := range filtered {
 				if err := tools.Install(t, globals.cfg, plat, arch, opts); err != nil {
@@ -1241,6 +1255,11 @@ func newToolsCmd() *cobra.Command {
 					fmt.Printf("  would install %s\n", t.Name)
 				} else {
 					fmt.Printf("  ✓ installed %s\n", t.Name)
+				}
+			}
+			if !installDryRun {
+				if err := lock.Save(); err != nil {
+					return err
 				}
 			}
 			if installErrors > 0 {
@@ -1253,6 +1272,64 @@ func newToolsCmd() *cobra.Command {
 	install.Flags().StringVar(&installTag, "tag", "", "filter by tag")
 	install.Flags().BoolVarP(&installDryRun, "dry-run", "n", false, "print actions without executing")
 	install.Flags().BoolVarP(&installForce, "force", "f", false, "reinstall even if present")
+
+	var updateTag string
+	var updateDryRun bool
+	update := &cobra.Command{
+		Use:   "update [names...]",
+		Short: "Update version-tracked tools to their target version",
+		Long: "Reinstall github-method tools whose installed version differs from\n" +
+			"their target (a pinned `version`, or the latest release when version is\n" +
+			"unset or \"latest\"). Tools installed via a package manager are left to\n" +
+			"that manager.",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := checkKnownTools(globals.cfg.Tools, args); err != nil {
+				return err
+			}
+			plat := platform.Detect()
+			arch := platform.Arch()
+			lock, err := lockfile.Load("")
+			if err != nil {
+				return err
+			}
+			results, err := tools.Update(globals.cfg, args, updateTag, plat, arch, lock, updateDryRun)
+			if err != nil {
+				return err
+			}
+			if !updateDryRun {
+				if err := lock.Save(); err != nil {
+					return err
+				}
+			}
+			printUpdateResults(results)
+			return nil
+		},
+	}
+	update.Flags().StringVar(&updateTag, "tag", "", "filter by tag")
+	update.Flags().BoolVarP(&updateDryRun, "dry-run", "n", false, "print actions without executing")
+
+	var statusTag string
+	status := &cobra.Command{
+		Use:   "status [names...]",
+		Short: "Show installed vs target versions for tracked tools",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := checkKnownTools(globals.cfg.Tools, args); err != nil {
+				return err
+			}
+			filtered := tools.Filter(globals.cfg.Tools, args, statusTag, platform.Platforms(), globals.cfg.ActiveProfile)
+			if len(filtered) == 0 {
+				fmt.Println("  No tools configured.")
+				return nil
+			}
+			lock, err := lockfile.Load("")
+			if err != nil {
+				return err
+			}
+			printVersionStatus(tools.VersionStatus(filtered, platform.Detect(), lock))
+			return nil
+		},
+	}
+	status.Flags().StringVar(&statusTag, "tag", "", "filter by tag")
 
 	var listTag string
 	list := &cobra.Command{
@@ -1280,8 +1357,64 @@ func newToolsCmd() *cobra.Command {
 	}
 	list.Flags().StringVar(&listTag, "tag", "", "filter by tag")
 
-	cmd.AddCommand(check, install, list)
+	cmd.AddCommand(check, install, update, status, list)
 	return cmd
+}
+
+// printUpdateResults renders the outcome of `dots tools update`.
+func printUpdateResults(results []tools.UpdateResult) {
+	changed := 0
+	for _, r := range results {
+		switch r.Action {
+		case "updated":
+			printStatusLine("updated", fmt.Sprintf("%s %s → %s", r.Tool.Name, displayVer(r.From), r.To), false)
+			changed++
+		case "installed":
+			printStatusLine("installed", fmt.Sprintf("%s %s", r.Tool.Name, r.To), false)
+			changed++
+		case "would-updated":
+			printStatusLine("update", fmt.Sprintf("%s %s → %s", r.Tool.Name, displayVer(r.From), r.To), true)
+			changed++
+		case "would-installed":
+			printStatusLine("install", fmt.Sprintf("%s %s", r.Tool.Name, r.To), true)
+			changed++
+		case "uptodate":
+			printStatusLine("up-to-date", fmt.Sprintf("%s %s", r.Tool.Name, r.To), false)
+		case "untracked":
+			fmt.Printf("  %s %s  %s\n", colorize(cDim, "·"),
+				colorize(cDim, fmt.Sprintf("%-*s", ui.LabelWidth, "untracked")), r.Tool.Name)
+		}
+	}
+	if changed == 0 {
+		fmt.Printf("\n%s All tracked tools are up to date.\n", colorize(cGreen, "✓"))
+	}
+}
+
+// printVersionStatus renders the table for `dots tools status`.
+func printVersionStatus(states []tools.VersionState) {
+	for _, s := range states {
+		switch s.State {
+		case tools.UpToDate:
+			fmt.Printf("  %s %-20s %s\n", colorize(cGreen, "✓"), s.Tool.Name, s.Target)
+		case tools.Outdated:
+			fmt.Printf("  %s %-20s %s → %s\n", colorize(cYellow, "↑"), s.Tool.Name, displayVer(s.Installed), s.Target)
+		case tools.NotInstalled:
+			fmt.Printf("  %s %-20s %s (not installed)\n", colorize(cRed, "✗"), s.Tool.Name, s.Target)
+		case tools.NotTracked:
+			fmt.Printf("  %s %-20s %s\n", colorize(cDim, "·"), s.Tool.Name, colorize(cDim, "untracked"))
+		case tools.Unknown:
+			fmt.Printf("  %s %-20s %s\n", colorize(cYellow, "?"), s.Tool.Name, colorize(cDim, "target unresolved"))
+		}
+	}
+}
+
+// displayVer renders a version for output, substituting a dash for the empty
+// string (e.g. a tool tracked but never recorded in the lockfile).
+func displayVer(v string) string {
+	if v == "" {
+		return "—"
+	}
+	return v
 }
 
 // ── shell ────────────────────────────────────────────────────────────────────
@@ -1372,8 +1505,12 @@ func newReposCmd() *cobra.Command {
 					icon, state = "✗", "missing"
 				case s.Dirty:
 					icon, state = "~", "dirty"
+				case s.Ref != "" && !s.OnTarget:
+					icon, state = "≠", "ref "+s.Ref
 				case s.Behind > 0:
 					icon, state = "↓", fmt.Sprintf("behind %d", s.Behind)
+				case s.Ref != "":
+					state = "ref " + s.Ref
 				}
 				fmt.Printf("  %s  %-12s  %s\n", icon, state, s.Entry.Dst)
 			}

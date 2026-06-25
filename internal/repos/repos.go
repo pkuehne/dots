@@ -16,11 +16,19 @@ import (
 
 // RepoState is the current state of a managed repo clone.
 type RepoState struct {
-	Entry   config.RepoEntry
-	Exists  bool
-	Dirty   bool
-	Behind  int    // commits behind remote
-	Current string // current ref (branch or SHA)
+	Entry    config.RepoEntry
+	Exists   bool
+	Dirty    bool
+	Behind   int    // commits behind remote
+	Current  string // current ref (branch or SHA)
+	Ref      string // configured target ref ("" when tracking the default branch)
+	OnTarget bool   // HEAD is at the configured ref (only meaningful when Ref != "")
+}
+
+// isLatestRef reports whether a configured ref means "track the default
+// branch": empty or the literal "latest" (case-insensitive).
+func isLatestRef(ref string) bool {
+	return ref == "" || strings.EqualFold(ref, "latest")
 }
 
 // CloneResult is the outcome of processing one [[repo]] during a clone pass.
@@ -163,7 +171,7 @@ func cloneOne(r config.RepoEntry, dryRun bool) (string, error) {
 	if r.Shallow {
 		args = append(args, "--depth", "1")
 	}
-	if r.Ref != "" {
+	if !isLatestRef(r.Ref) {
 		args = append(args, "--branch", r.Ref)
 	}
 	args = append(args, repoURL, dst)
@@ -203,17 +211,8 @@ func updateOne(r config.RepoEntry, dryRun bool) (string, error) {
 		return "ok", nil
 	}
 
-	if r.Shallow {
-		if err := gitRun([]string{"fetch", "--depth", "1"}, dst); err != nil {
-			return "", err
-		}
-		if err := gitRun([]string{"reset", "--hard", "FETCH_HEAD"}, dst); err != nil {
-			return "", err
-		}
-	} else {
-		if err := gitRun([]string{"pull"}, dst); err != nil {
-			return "", err
-		}
+	if err := syncRef(r, dst); err != nil {
+		return "", err
 	}
 
 	if r.OnUpdate != "" {
@@ -224,10 +223,52 @@ func updateOne(r config.RepoEntry, dryRun bool) (string, error) {
 	return "ok", nil
 }
 
+// syncRef brings the working tree in line with the configured ref. When the
+// repo tracks the default branch (ref unset or "latest") it pulls the tip;
+// otherwise it asserts the pinned tag/branch/SHA, resetting a tracked branch to
+// its remote so a moved branch is honoured and detaching onto a tag or SHA.
+func syncRef(r config.RepoEntry, dst string) error {
+	if isLatestRef(r.Ref) {
+		if r.Shallow {
+			if err := gitRun([]string{"fetch", "--depth", "1"}, dst); err != nil {
+				return err
+			}
+			return gitRun([]string{"reset", "--hard", "FETCH_HEAD"}, dst)
+		}
+		return gitRun([]string{"pull"}, dst)
+	}
+
+	if r.Shallow {
+		if err := gitRun([]string{"fetch", "--depth", "1", "origin", r.Ref}, dst); err != nil {
+			return err
+		}
+		return gitRun([]string{"reset", "--hard", "FETCH_HEAD"}, dst)
+	}
+
+	if err := gitRun([]string{"fetch", "--tags", "--force", "origin"}, dst); err != nil {
+		return err
+	}
+	// A remote branch is reset to its tip so a moved branch is tracked; a tag or
+	// SHA is checked out detached at exactly that commit.
+	if remoteBranchExists(dst, r.Ref) {
+		return gitRun([]string{"checkout", "-B", r.Ref, "origin/" + r.Ref}, dst)
+	}
+	return gitRun([]string{"checkout", "--force", r.Ref}, dst)
+}
+
+// remoteBranchExists reports whether origin/<ref> resolves to a branch.
+func remoteBranchExists(dst, ref string) bool {
+	_, err := gitOutput([]string{"rev-parse", "--verify", "--quiet", "refs/remotes/origin/" + ref}, dst)
+	return err == nil
+}
+
 // repoState returns the current state of a repo without modifying it.
 func repoState(r config.RepoEntry) (RepoState, error) {
 	dst := fileutil.Expand(r.Dst)
 	s := RepoState{Entry: r}
+	if !isLatestRef(r.Ref) {
+		s.Ref = r.Ref
+	}
 
 	if _, err := os.Stat(dst); os.IsNotExist(err) {
 		return s, nil
@@ -251,7 +292,31 @@ func repoState(r config.RepoEntry) (RepoState, error) {
 		s.Behind = n
 	}
 
+	// When a ref is pinned, report whether HEAD sits at it. Resolution is local
+	// (no fetch) so status stays side-effect-free; an unresolvable ref simply
+	// reads as off-target.
+	if s.Ref != "" {
+		s.OnTarget = headAtRef(dst, s.Ref)
+	}
+
 	return s, nil
+}
+
+// headAtRef reports whether HEAD resolves to the same commit as ref. It tries
+// the ref as given and as a tag, so both branch and tag pins are recognised.
+func headAtRef(dst, ref string) bool {
+	head, err := gitOutput([]string{"rev-parse", "HEAD"}, dst)
+	if err != nil {
+		return false
+	}
+	for _, candidate := range []string{ref + "^{commit}", "refs/tags/" + ref + "^{commit}"} {
+		if out, err := gitOutput([]string{"rev-parse", "--verify", "--quiet", candidate}, dst); err == nil {
+			if strings.TrimSpace(out) == strings.TrimSpace(head) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // expandURL expands a GitHub shorthand "user/repo" to a full HTTPS URL.

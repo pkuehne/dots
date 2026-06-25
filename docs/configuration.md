@@ -59,7 +59,9 @@ hint, rather than being silently ignored.
 
 The `github` method installs the latest release by default. Pin a release with
 `version = "1.2.3"` — the tag is matched as given, falling back to a `v` prefix
-(`v1.2.3`).
+(`v1.2.3`). Setting `version = "latest"` is the same as leaving it unset: dots
+tracks the newest release. See [Version tracking](#version-tracking) for how dots
+asserts and updates the installed version.
 
 When the matched asset is an archive, dots extracts it and locates the binary
 (see `binary` / `binary_path`). Supported archive formats are `.tar.gz`/`.tgz`,
@@ -98,3 +100,72 @@ arch_map = { aarch64 = "arm64" }
 ```
 
 `arch_map` applies only to `{arch}`; `{goarch}` is always the canonical Go name.
+
+## Version tracking
+
+For tools installed with the `github` method, dots tracks which version is
+installed and can assert a target version — either a pinned tag or the latest
+release.
+
+The version dots installs is recorded in a machine-local lockfile at
+`~/.config/dots/installed.toml`. This file describes what is installed on *this*
+machine, so it is not part of your dotfiles repo and should not be committed.
+Package-manager installs (apt, brew, cargo, …) are not recorded — those managers
+track their own versions.
+
+```toml
+[[tool]]
+name = "lazygit"
+[[tool.install]]
+method = "github"
+repo = "jesseduffield/lazygit"
+version = "0.44.1"   # pinned: dots asserts exactly this release
+# version = "latest" # or omit: dots tracks the newest release
+```
+
+| Command | What it does |
+|---------|--------------|
+| `dots tools status [names...]` | Show installed vs target version for each tracked tool. |
+| `dots tools update [names...]` | Reinstall tools whose installed version differs from the target. |
+
+`dots tools status` reports one of: up to date (`✓`), outdated (`↑ old → new`),
+not installed (`✗`), or untracked (`·`, no github method). Resolving a `latest`
+target queries the GitHub API; pinned targets are read straight from config.
+
+`dots tools update` reinstalls only the tools that are outdated (or missing),
+then records the new version in the lockfile. It is idempotent: a second run
+reports everything up to date. Use `--dry-run` to preview and `--tag` to filter.
+Tools installed by a package manager are reported as `untracked` and left alone.
+
+## Repositories — `[[repo]]`
+
+Each `[[repo]]` clones a git repository to `dst`.
+
+| Key | Meaning |
+|-----|---------|
+| `name` | Identifier used on the command line. |
+| `repo` | URL or `user/repo` GitHub shorthand. |
+| `dst` | Clone destination (supports `~`). |
+| `shallow` | Clone with `--depth 1`. |
+| `ref` | Target ref to assert — a tag, branch, or SHA. |
+| `on_install` / `on_update` | Shell hooks run after clone / update. |
+
+Like tools, repos track a version through `ref`:
+
+```toml
+[[repo]]
+name = "tpm"
+repo = "tmux-plugins/tpm"
+dst  = "~/.tmux/plugins/tpm"
+ref  = "v3.1.0"   # pinned: update asserts this tag
+# ref = "latest"  # or omit: track the default branch tip
+```
+
+`dots repos update` brings each clone in line with its `ref`. A pinned tag or
+SHA is checked out exactly (detached); a pinned branch is reset to its remote
+tip so a moved branch is honoured. With `ref` unset or `"latest"`, dots tracks
+the default branch as before. A repo with uncommitted changes is skipped so
+local work is never discarded.
+
+`dots repos status` shows `≠ ref <x>` when HEAD has drifted off a pinned ref,
+alongside the existing `missing`, `dirty`, and `behind N` states.
