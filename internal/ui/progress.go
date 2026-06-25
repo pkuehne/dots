@@ -122,11 +122,12 @@ func (b *barProgress) Task(name string) Task {
 type barTask struct {
 	bar *mpb.Bar
 
-	mu     sync.Mutex
-	stage  string
-	detail string
-	failed bool
-	total  int64
+	mu        sync.Mutex
+	stage     string
+	detail    string
+	failed    bool
+	total     int64
+	byteSized bool // set once Write is used, so the byte counter only shows for downloads
 }
 
 // statusText is the left-hand status: the current stage while in flight, a
@@ -145,11 +146,13 @@ func (t *barTask) statusText(st decor.Statistics) string {
 }
 
 // rightText shows download counters while a sized download is in flight, and
-// nothing otherwise (queued, indeterminate, complete or failed).
+// nothing otherwise (queued, indeterminate, complete, failed, or a step-counted
+// task whose total is a step count rather than bytes — humanBytes would render
+// misleading "1 B / 3 B" units there).
 func (t *barTask) rightText(st decor.Statistics) string {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	if t.failed || st.Completed || t.total <= 0 {
+	if t.failed || st.Completed || t.total <= 0 || !t.byteSized {
 		return ""
 	}
 	return fmt.Sprintf("%s / %s", humanBytes(st.Current), humanBytes(t.total))
@@ -171,6 +174,9 @@ func (t *barTask) SetTotal(total int64) {
 }
 
 func (t *barTask) Write(p []byte) (int, error) {
+	t.mu.Lock()
+	t.byteSized = true
+	t.mu.Unlock()
 	t.bar.IncrBy(len(p))
 	return len(p), nil
 }

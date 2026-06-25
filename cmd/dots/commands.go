@@ -317,9 +317,13 @@ func printCloneResults(sec *ui.Section, results []repos.CloneResult, dryRun, sum
 				sec.Status("present", r.Entry.Name, dryRun)
 			}
 		case "failed":
-			fmt.Fprintf(os.Stderr, "  %s %s  %s: %v\n", colorize(cRed, "✗"),
-				colorize(cRed, fmt.Sprintf("%-*s", ui.LabelWidth, "error")), r.Entry.Name, r.Err)
 			failed++
+			// In a live run the clone task already rendered the failure via
+			// task.Fail; only dry-run predictions (no live bar) print here.
+			if dryRun {
+				fmt.Fprintf(os.Stderr, "  %s %s  %s: %v\n", colorize(cRed, "✗"),
+					colorize(cRed, fmt.Sprintf("%-*s", ui.LabelWidth, "error")), r.Entry.Name, r.Err)
+			}
 		}
 	}
 	verb := "cloned"
@@ -641,10 +645,14 @@ func printResults(sec *ui.Section, results []deploy.Result, dryRun, summary bool
 	counts := map[string]int{}
 	for _, r := range results {
 		if r.Err != nil {
-			// Errors always surface, even in summary mode.
-			fmt.Fprintf(os.Stderr, "  %s  %s: %v\n",
-				colorize(cRed, "✗ error"), r.Entry.Dst, r.Err)
 			counts["error"]++
+			// A live task already rendered the failure via task.Fail; only
+			// residual errors (prepare-stage validation, dry-run) need printing
+			// here, so live ones are not duplicated.
+			if !r.Live {
+				fmt.Fprintf(os.Stderr, "  %s  %s: %v\n",
+					colorize(cRed, "✗ error"), r.Entry.Dst, r.Err)
+			}
 			continue
 		}
 		// All skip variants (plain, platform/profile) roll up into a single

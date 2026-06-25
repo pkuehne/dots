@@ -50,8 +50,10 @@ func Apply(entry config.FileEntry, opts Options) Result {
 
 // ApplyWithTask deploys a single FileEntry, reporting its internal stages
 // (checking → backing up → linking/copying/decrypting) through task so a live
-// progress bar can advance. A no-op, skip, or dry-run prediction reports no
-// stages — there is no work to show.
+// progress bar can advance. A skip, missing source, or dry-run prediction is
+// resolved by prepare before any stage is reported; an entry that turns out
+// unchanged is only discovered mid-execute, so it still reports the initial
+// "checking" stage before completing as a no-op.
 func ApplyWithTask(entry config.FileEntry, opts Options, task ui.Task) Result {
 	plan, terminal := prepare(entry, opts)
 	if terminal != nil {
