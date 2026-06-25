@@ -191,8 +191,8 @@ func TestUpdate_DryRunNoChange(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Update dry-run: %v", err)
 	}
-	if results[0].Action != "would-updated" {
-		t.Errorf("action = %q, want would-updated", results[0].Action)
+	if results[0].Action != "would-update" {
+		t.Errorf("action = %q, want would-update", results[0].Action)
 	}
 	if e, _ := lock.Get("rg"); e.Version != "0.9.0" {
 		t.Errorf("dry-run must not mutate lock, got %q", e.Version)

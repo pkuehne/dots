@@ -123,7 +123,7 @@ func VersionStatus(toolList []config.Tool, plat string, lock *lockfile.Lock) []V
 // UpdateResult is the outcome of processing one tool during `tools update`.
 type UpdateResult struct {
 	Tool   config.Tool
-	Action string // "updated", "installed", "uptodate", "untracked", or a dry-run "would-updated"/"would-installed"
+	Action string // "updated", "installed", "uptodate", "untracked", or a dry-run "would-update"/"would-install"
 	From   string // previous version (for updates)
 	To     string // new/target version
 }
@@ -160,11 +160,12 @@ func Update(cfg config.Config, names []string, tag, plat, arch string, lock *loc
 		}
 
 		action := "updated"
+		would := "would-update"
 		if !present || installed == "" {
-			action = "installed"
+			action, would = "installed", "would-install"
 		}
 		if dryRun {
-			results = append(results, UpdateResult{Tool: t, Action: "would-" + action, From: installed, To: target})
+			results = append(results, UpdateResult{Tool: t, Action: would, From: installed, To: target})
 			continue
 		}
 

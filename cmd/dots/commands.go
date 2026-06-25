@@ -1372,10 +1372,10 @@ func printUpdateResults(results []tools.UpdateResult) {
 		case "installed":
 			printStatusLine("installed", fmt.Sprintf("%s %s", r.Tool.Name, r.To), false)
 			changed++
-		case "would-updated":
+		case "would-update":
 			printStatusLine("update", fmt.Sprintf("%s %s → %s", r.Tool.Name, displayVer(r.From), r.To), true)
 			changed++
-		case "would-installed":
+		case "would-install":
 			printStatusLine("install", fmt.Sprintf("%s %s", r.Tool.Name, r.To), true)
 			changed++
 		case "uptodate":
