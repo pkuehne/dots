@@ -123,7 +123,7 @@ func VersionStatus(toolList []config.Tool, plat string, lock *lockfile.Lock) []V
 // UpdateResult is the outcome of processing one tool during `tools update`.
 type UpdateResult struct {
 	Tool   config.Tool
-	Action string // "updated", "installed", "uptodate", "untracked", "would-update"
+	Action string // "updated", "installed", "uptodate", "untracked", or a dry-run "would-updated"/"would-installed"
 	From   string // previous version (for updates)
 	To     string // new/target version
 }

@@ -171,13 +171,19 @@ func cloneOne(r config.RepoEntry, dryRun bool) (string, error) {
 	if r.Shallow {
 		args = append(args, "--depth", "1")
 	}
-	if !isLatestRef(r.Ref) {
-		args = append(args, "--branch", r.Ref)
-	}
 	args = append(args, repoURL, dst)
 
 	if err := gitRun(args, ""); err != nil {
 		return "", err
+	}
+
+	// Assert the pinned ref after cloning rather than via `git clone --branch`,
+	// which rejects a raw commit SHA. syncRef handles tag/branch/SHA uniformly
+	// and is the same path `update` uses.
+	if !isLatestRef(r.Ref) {
+		if err := syncRef(r, dst); err != nil {
+			return "", err
+		}
 	}
 
 	if r.OnInstall != "" {

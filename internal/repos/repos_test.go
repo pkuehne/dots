@@ -459,6 +459,30 @@ func TestUpdateOne_PinnedTag(t *testing.T) {
 	}
 }
 
+// TestCloneOne_PinnedSHA pins a raw commit SHA, which `git clone --branch`
+// cannot check out — cloneOne must clone then detach onto the SHA via syncRef.
+func TestCloneOne_PinnedSHA(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+	bare := makeBareRepo(t)
+	local := makeLocalRepo(t, bare)
+
+	// First commit is the pin target; move the branch past it and push.
+	sha := gitC(t, local, "rev-parse", "HEAD")
+	gitC(t, local, "commit", "--allow-empty", "-m", "second")
+	gitC(t, local, "push")
+
+	dst := filepath.Join(t.TempDir(), "clone")
+	r := config.RepoEntry{Name: "test", Repo: "file://" + bare, Dst: dst, Ref: sha}
+	if _, err := cloneOne(r, false); err != nil {
+		t.Fatalf("cloneOne pinned SHA: %v", err)
+	}
+	if got := gitC(t, dst, "rev-parse", "HEAD"); got != sha {
+		t.Errorf("HEAD = %s, want pinned SHA %s", got, sha)
+	}
+}
+
 // TestRepoState_RefDrift reports a pinned ref that HEAD is not sitting at.
 func TestRepoState_RefDrift(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
@@ -476,8 +500,8 @@ func TestRepoState_RefDrift(t *testing.T) {
 	if _, err := cloneOne(r, false); err != nil {
 		t.Fatalf("setup clone: %v", err)
 	}
-	// cloneOne pins --branch v1, so it should already be on target; move HEAD to
-	// the default branch tip to simulate drift.
+	// cloneOne asserts the pinned ref, so it should already be on v1; move HEAD
+	// to the default branch tip to simulate drift.
 	gitC(t, dst, "fetch", "origin")
 	gitC(t, dst, "checkout", "--detach", "origin/HEAD")
 
