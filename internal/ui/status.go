@@ -103,13 +103,19 @@ func StatusLine(action, name string, dryRun bool) {
 	fmt.Println(FormatStatus(action, name, dryRun))
 }
 
+// sectionPrinted records whether any section header has been emitted in this
+// process so the blank-line separator falls *between* sections rather than
+// before the first one — apply starts directly with "Files:", not a blank line.
+// A command renders its output once and exits, so this run-scoped flag never
+// needs resetting.
+var sectionPrinted bool
+
 // Section groups status rows under a header so apply output reads as one block
 // per subsystem (Files, Shell, Git, SSH, Repos, Tools) instead of an unlabelled
 // run of lines. The header is printed at most once: always-listed sections call
 // Header up front, while conditional sections (git/ssh/shell, silent when
 // nothing changed) let the first Status/Summary print it lazily. A nil *Section
-// is valid and prints rows with no header — used by the focused init commands
-// and tests that want bare output.
+// is valid and prints rows with no header — used by tests that want bare output.
 type Section struct {
 	title   string
 	started bool
@@ -124,9 +130,13 @@ func (s *Section) Header() {
 	if s == nil || s.started {
 		return
 	}
-	// Leading blank line separates this section from the previous one.
-	fmt.Printf("\n%s:\n", s.title)
+	if sectionPrinted {
+		// Blank line separating this section from the previous one.
+		fmt.Println()
+	}
+	fmt.Printf("%s:\n", s.title)
 	s.started = true
+	sectionPrinted = true
 }
 
 // Status prints one status row under the section, emitting the header first if
