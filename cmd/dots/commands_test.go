@@ -238,7 +238,7 @@ func makeShellCfg(t *testing.T) config.Config {
 func TestApplyShell_WritesSnippetsAndBootstrapper(t *testing.T) {
 	cfg := makeShellCfg(t)
 
-	if err := applyShell(cfg, false); err != nil {
+	if err := applyShell(cfg, false, false); err != nil {
 		t.Fatalf("applyShell: %v", err)
 	}
 
@@ -259,7 +259,7 @@ func TestApplyShell_WritesSnippetsAndBootstrapper(t *testing.T) {
 func TestApplyShell_DryRunNoWrites(t *testing.T) {
 	cfg := makeShellCfg(t)
 
-	if err := applyShell(cfg, true); err != nil {
+	if err := applyShell(cfg, true, false); err != nil {
 		t.Fatalf("applyShell --dry-run: %v", err)
 	}
 
@@ -275,10 +275,10 @@ func TestApplyShell_DryRunNoWrites(t *testing.T) {
 func TestApplyShell_Idempotent(t *testing.T) {
 	cfg := makeShellCfg(t)
 
-	if err := applyShell(cfg, false); err != nil {
+	if err := applyShell(cfg, false, false); err != nil {
 		t.Fatalf("first applyShell: %v", err)
 	}
-	if err := applyShell(cfg, false); err != nil {
+	if err := applyShell(cfg, false, false); err != nil {
 		t.Fatalf("second applyShell: %v", err)
 	}
 
@@ -293,7 +293,7 @@ func TestApplyShell_SkipsWhenNotManaged(t *testing.T) {
 	cfg := makeShellCfg(t)
 	cfg.Shell.Managed = false
 
-	if err := applyShell(cfg, false); err != nil {
+	if err := applyShell(cfg, false, false); err != nil {
 		t.Fatalf("applyShell: %v", err)
 	}
 
@@ -306,7 +306,7 @@ func TestApplyPresets_FzfWritesToShellD(t *testing.T) {
 	cfg := makeShellCfg(t)
 	cfg.Presets.Fzf = true
 
-	if err := applyPresets(cfg, false); err != nil {
+	if err := applyPresets(cfg, false, false); err != nil {
 		t.Fatalf("applyPresets: %v", err)
 	}
 
@@ -338,7 +338,7 @@ func TestApplyPresets_TmuxWritesConfig(t *testing.T) {
 	cfg := config.Config{}
 	cfg.Presets.Tmux = true
 
-	if err := applyPresets(cfg, false); err != nil {
+	if err := applyPresets(cfg, false, false); err != nil {
 		t.Fatalf("applyPresets: %v", err)
 	}
 
@@ -423,7 +423,7 @@ func TestApplyPresets_DryRunNoWrites(t *testing.T) {
 	cfg := makeShellCfg(t)
 	cfg.Presets.Fzf = true
 
-	if err := applyPresets(cfg, true); err != nil {
+	if err := applyPresets(cfg, true, false); err != nil {
 		t.Fatalf("applyPresets --dry-run: %v", err)
 	}
 

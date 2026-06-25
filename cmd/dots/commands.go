@@ -233,53 +233,49 @@ func runApply(cfg config.Config, fileArgs []string, dryRun, forceCopy, summary b
 		return nil
 	}
 
-	if err := applyShell(cfg, dryRun); err != nil {
+	if err := applyShell(cfg, dryRun, summary); err != nil {
 		return err
 	}
-	if err := applyGit(cfg, dryRun); err != nil {
+	if err := applyGit(cfg, dryRun, summary); err != nil {
 		return err
 	}
-	if err := applySSH(cfg, dryRun); err != nil {
+	if err := applySSH(cfg, dryRun, summary); err != nil {
 		return err
 	}
 	if err := applyRepos(cfg, dryRun, summary); err != nil {
 		return err
 	}
-	if err := applyPresets(cfg, dryRun); err != nil {
+	if err := applyPresets(cfg, dryRun, summary); err != nil {
 		return err
 	}
 	if err := applyTools(cfg, dryRun, summary, jobs); err != nil {
 		return err
 	}
-	if err := applyLoginShell(cfg, dryRun); err != nil {
+	if err := applyLoginShell(cfg, dryRun, summary); err != nil {
 		return err
 	}
 	return nil
 }
 
-func applyShell(cfg config.Config, dryRun bool) error {
+func applyShell(cfg config.Config, dryRun, summary bool) error {
 	if !cfg.Shell.Managed {
 		return nil
 	}
-	sec := ui.NewSection("Shell")
-	if err := shell.WriteSnippets(cfg, dryRun, sec); err != nil {
-		return err
-	}
-	return shell.InsertSourceLine(cfg, dryRun, sec)
+	return shell.Apply(cfg, dryRun, summary, ui.NewSection("Shell"))
 }
 
-func applyGit(cfg config.Config, dryRun bool) error {
+func applyGit(cfg config.Config, dryRun, summary bool) error {
 	if !cfg.Git.Managed {
 		return nil
 	}
-	return gogit.WriteManaged(cfg, dryRun, ui.NewSection("Git"))
+	return gogit.WriteManaged(cfg, dryRun, summary, ui.NewSection("Git"))
 }
 
-func applySSH(cfg config.Config, dryRun bool) error {
+func applySSH(cfg config.Config, dryRun, summary bool) error {
 	if !cfg.SSH.Managed {
 		return nil
 	}
-	return gossh.WriteManaged(cfg, platform.Platforms(), dryRun, ui.NewSection("SSH"))
+	return gossh.WriteManaged(cfg, platform.Platforms(), dryRun, summary, ui.NewSection("SSH"))
 }
 
 func applyRepos(cfg config.Config, dryRun, summary bool) error {
@@ -361,29 +357,49 @@ func printRepoUpdateResults(results []repos.UpdateResult, dryRun bool) {
 	fmt.Printf("  %s\n", strings.Join(parts, ", "))
 }
 
-func applyPresets(cfg config.Config, dryRun bool) error {
+func applyPresets(cfg config.Config, dryRun, summary bool) error {
+	if (!cfg.Presets.Fzf || !cfg.Shell.Managed) && !cfg.Presets.Tmux {
+		return nil
+	}
+	// Render the Presets section like the file/repo/tool sections: a header,
+	// one row per generated file (including unchanged ones, unless summary
+	// suppresses them) and a tally, so it stays visible on an idempotent re-run.
+	sec := ui.NewSection("Presets")
+	wrote, unchanged := 0, 0
+	write := func(dst, content, label string) error {
+		action, err := applyPresetFile(dst, content, dryRun)
+		if err != nil {
+			return err
+		}
+		if action == "unchanged" {
+			unchanged++
+		} else {
+			wrote++
+		}
+		if !summary {
+			sec.Status(action, label+" → "+dst, dryRun)
+		}
+		return nil
+	}
+
 	if cfg.Presets.Fzf && cfg.Shell.Managed {
 		// fzf key-binding paths differ per shell, and a .sh snippet is sourced
 		// by both bootstrappers, so write a shell-specific 030-fzf.<shell> for
 		// each. shell.Clean's `expected` map must list both so apply and clean
-		// stay in sync. These are dots-owned; writeUserFile skips the write when
-		// unchanged and overwrites without backup (the content is generated).
+		// stay in sync. These are dots-owned: applyPresetFile skips the write when
+		// unchanged and overwrites dots-generated content in place, backing up
+		// only a pre-existing file that dots did not generate.
 		dir := fileutil.Expand(cfg.Shell.Dir)
-		for _, shellName := range []string{"zsh", "bash"} {
-			dst := filepath.Join(dir, "030-fzf."+shellName)
-			content := presets.GenerateFzf(shellName)
-			if dryRun {
-				fmt.Printf("  would write fzf preset → %s\n", dst)
-				continue
-			}
+		if !dryRun {
 			if err := os.MkdirAll(dir, 0o755); err != nil {
 				return err
 			}
-			action, err := writeUserFile(dst, content)
-			if err != nil {
+		}
+		for _, shellName := range []string{"zsh", "bash"} {
+			dst := filepath.Join(dir, "030-fzf."+shellName)
+			if err := write(dst, presets.GenerateFzf(shellName), "fzf preset"); err != nil {
 				return err
 			}
-			fmt.Printf("  %s fzf preset → %s\n", action, dst)
 		}
 	}
 	if cfg.Presets.Tmux {
@@ -391,17 +407,11 @@ func applyPresets(cfg config.Config, dryRun bool) error {
 		if err != nil {
 			return err
 		}
-		dst := fileutil.Expand("~/.tmux.conf")
-		if dryRun {
-			fmt.Printf("  would write tmux preset → %s\n", dst)
-		} else {
-			action, err := writeUserFile(dst, content)
-			if err != nil {
-				return err
-			}
-			fmt.Printf("  %s tmux preset → %s\n", action, dst)
+		if err := write(fileutil.Expand("~/.tmux.conf"), content, "tmux preset"); err != nil {
+			return err
 		}
 	}
+	sec.Summary(ui.ChangeTally(wrote, unchanged, dryRun))
 	return nil
 }
 
@@ -444,6 +454,31 @@ func writeUserFile(dst, content string) (string, error) {
 		return "", err
 	}
 	return "wrote", nil
+}
+
+// applyPresetFile reports the action deploying content to dst would take
+// ("unchanged", "wrote", or "backed up & wrote") and, unless dryRun, performs
+// it. It is the dry-run-aware wrapper around writeUserFile used by the Presets
+// section so apply and preview agree on what each row would do.
+func applyPresetFile(dst, content string, dryRun bool) (string, error) {
+	if !dryRun {
+		return writeUserFile(dst, content)
+	}
+	existing, err := os.ReadFile(dst)
+	switch {
+	case err == nil:
+		if string(existing) == content {
+			return "unchanged", nil
+		}
+		if !isDotsGenerated(string(existing)) {
+			return "backed up & wrote", nil
+		}
+		return "wrote", nil
+	case os.IsNotExist(err):
+		return "wrote", nil
+	default:
+		return "", err
+	}
 }
 
 // checkKnownTools returns an error if any of names does not match a configured
@@ -542,28 +577,38 @@ func applyTools(cfg config.Config, dryRun, summary bool, applyJobs int) error {
 	return nil
 }
 
-func applyLoginShell(cfg config.Config, dryRun bool) error {
+func applyLoginShell(cfg config.Config, dryRun, summary bool) error {
 	if !cfg.Shell.Managed || !cfg.Shell.Login {
 		return nil
 	}
+	// Render the Login shell section like the file/repo/tool sections: a header,
+	// one row per managed rc file (including unchanged ones, unless summary
+	// suppresses them) and a tally, so it stays visible on an idempotent re-run.
 	sec := ui.NewSection("Login shell")
-	zprofile := fileutil.Expand("~/.zprofile")
-	profile := fileutil.Expand("~/.profile")
-	if dryRun {
-		sec.Status("wrote", zprofile, true)
-		sec.Status("wrote", profile, true)
-		return nil
+	sec.Header()
+	wrote, unchanged := 0, 0
+	files := []struct {
+		path    string
+		content string
+	}{
+		{fileutil.Expand("~/.zprofile"), presets.GenerateZprofile(cfg)},
+		{fileutil.Expand("~/.profile"), presets.GenerateProfile(cfg)},
 	}
-	zAction, err := writeUserFile(zprofile, presets.GenerateZprofile(cfg))
-	if err != nil {
-		return err
+	for _, f := range files {
+		action, err := applyPresetFile(f.path, f.content, dryRun)
+		if err != nil {
+			return err
+		}
+		if action == "unchanged" {
+			unchanged++
+		} else {
+			wrote++
+		}
+		if !summary {
+			sec.Status(action, f.path, dryRun)
+		}
 	}
-	pAction, err := writeUserFile(profile, presets.GenerateProfile(cfg))
-	if err != nil {
-		return err
-	}
-	sec.Status(zAction, zprofile, false)
-	sec.Status(pAction, profile, false)
+	sec.Summary(ui.ChangeTally(wrote, unchanged, dryRun))
 	return nil
 }
 
@@ -1663,7 +1708,7 @@ func newGitCmd() *cobra.Command {
 		Use:   "init",
 		Short: "Enable git managed mode",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return gogit.WriteManaged(globals.cfg, initDryRun, ui.NewSection("Git"))
+			return gogit.WriteManaged(globals.cfg, initDryRun, false, ui.NewSection("Git"))
 		},
 	}
 	initSub.Flags().BoolVarP(&initDryRun, "dry-run", "n", false, "print actions without executing")
@@ -1700,7 +1745,7 @@ func newSSHCmd() *cobra.Command {
 		Use:   "init",
 		Short: "Enable SSH managed mode",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return gossh.WriteManaged(globals.cfg, platform.Platforms(), initDryRun, ui.NewSection("SSH"))
+			return gossh.WriteManaged(globals.cfg, platform.Platforms(), initDryRun, false, ui.NewSection("SSH"))
 		},
 	}
 	initSub.Flags().BoolVarP(&initDryRun, "dry-run", "n", false, "print actions without executing")

@@ -93,26 +93,41 @@ func GenerateConfig(cfg config.Config) string {
 }
 
 // WriteManaged writes managed.gitconfig and inserts the [include] block into
-// ~/.gitconfig. Both steps are idempotent and report what they changed (or
-// with dryRun would change) as rows under sec; unchanged files produce no
-// output. sec may be nil, in which case rows print without a section header.
-func WriteManaged(cfg config.Config, dryRun bool, sec *ui.Section) error {
+// ~/.gitconfig. Both steps are idempotent. Like the file, repo and tool
+// sections, it always renders its header, one row per managed item (including
+// unchanged ones, unless summary suppresses them) and a tally, so the section
+// stays visible on an idempotent re-run instead of vanishing. sec may be nil,
+// in which case rows print without a section header.
+func WriteManaged(cfg config.Config, dryRun, summary bool, sec *ui.Section) error {
+	sec.Header()
+	wrote, unchanged := 0, 0
+	row := func(action, name string, changed bool) {
+		if changed {
+			wrote++
+		} else {
+			unchanged++
+			action = "unchanged"
+		}
+		if !summary {
+			sec.Status(action, name, dryRun)
+		}
+	}
+
 	outPath := fileutil.Expand("~/.config/dots/git/managed.gitconfig")
 	changed, err := fileutil.WriteIfChanged(outPath, []byte(GenerateConfig(cfg)), 0o644, dryRun)
 	if err != nil {
 		return err
 	}
-	if changed {
-		sec.Status("wrote", outPath, dryRun)
-	}
+	row("wrote", outPath, changed)
+
 	gitconfig := fileutil.Expand("~/.gitconfig")
 	inserted, err := shell.InsertBlock(gitconfig, gitIncludeBlock, dryRun)
 	if err != nil {
 		return err
 	}
-	if inserted {
-		sec.Status("updated", "[include] → "+gitconfig, dryRun)
-	}
+	row("updated", "[include] → "+gitconfig, inserted)
+
+	sec.Summary(ui.ChangeTally(wrote, unchanged, dryRun))
 	return nil
 }
 

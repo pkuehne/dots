@@ -94,18 +94,32 @@ func GenerateConfig(cfg config.Config, platforms []string) string {
 }
 
 // WriteManaged writes the SSH config fragment and inserts the Include line
-// into ~/.ssh/config. Both steps are idempotent and report what they changed
-// (or with dryRun would change) as rows under sec; unchanged files produce no
-// output. sec may be nil, in which case rows print without a section header.
-func WriteManaged(cfg config.Config, platforms []string, dryRun bool, sec *ui.Section) error {
+// into ~/.ssh/config. Both steps are idempotent. Like the file, repo and tool
+// sections, it always renders its header, one row per managed item (including
+// unchanged ones, unless summary suppresses them) and a tally, so the section
+// stays visible on an idempotent re-run instead of vanishing. sec may be nil,
+// in which case rows print without a section header.
+func WriteManaged(cfg config.Config, platforms []string, dryRun, summary bool, sec *ui.Section) error {
+	sec.Header()
+	wrote, unchanged := 0, 0
+	row := func(action, name string, changed bool) {
+		if changed {
+			wrote++
+		} else {
+			unchanged++
+			action = "unchanged"
+		}
+		if !summary {
+			sec.Status(action, name, dryRun)
+		}
+	}
+
 	outPath := fileutil.Expand("~/.config/dots/ssh/config")
 	changed, err := fileutil.WriteIfChanged(outPath, []byte(GenerateConfig(cfg, platforms)), 0o600, dryRun)
 	if err != nil {
 		return err
 	}
-	if changed {
-		sec.Status("wrote", outPath, dryRun)
-	}
+	row("wrote", outPath, changed)
 
 	sshDir := fileutil.Expand("~/.ssh")
 	if !dryRun {
@@ -119,9 +133,9 @@ func WriteManaged(cfg config.Config, platforms []string, dryRun bool, sec *ui.Se
 	if err != nil {
 		return err
 	}
-	if inserted {
-		sec.Status("updated", "Include → "+sshConfig, dryRun)
-	}
+	row("updated", "Include → "+sshConfig, inserted)
+
+	sec.Summary(ui.ChangeTally(wrote, unchanged, dryRun))
 	return nil
 }
 

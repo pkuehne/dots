@@ -145,7 +145,7 @@ func TestWriteManaged_DryRun(t *testing.T) {
 	cfg.Git.DefaultBranch = "main"
 	// Dry run should not create any files.
 	t.Setenv("HOME", t.TempDir())
-	if err := WriteManaged(cfg, true, nil); err != nil {
+	if err := WriteManaged(cfg, true, false, nil); err != nil {
 		t.Fatalf("WriteManaged dry-run: %v", err)
 	}
 }
@@ -158,7 +158,7 @@ func TestWriteManaged_CreatesFile(t *testing.T) {
 	cfg.Git.Name = "Alice"
 	cfg.Git.DefaultBranch = "main"
 
-	if err := WriteManaged(cfg, false, nil); err != nil {
+	if err := WriteManaged(cfg, false, false, nil); err != nil {
 		t.Fatalf("WriteManaged: %v", err)
 	}
 
@@ -179,7 +179,7 @@ func TestWriteManaged_InsertsIncludeBlock(t *testing.T) {
 	cfg := config.Config{}
 	cfg.Git.DefaultBranch = "main"
 
-	if err := WriteManaged(cfg, false, nil); err != nil {
+	if err := WriteManaged(cfg, false, false, nil); err != nil {
 		t.Fatalf("WriteManaged: %v", err)
 	}
 
@@ -203,10 +203,10 @@ func TestWriteManaged_Idempotent(t *testing.T) {
 	cfg := config.Config{}
 	cfg.Git.DefaultBranch = "main"
 
-	if err := WriteManaged(cfg, false, nil); err != nil {
+	if err := WriteManaged(cfg, false, false, nil); err != nil {
 		t.Fatalf("first WriteManaged: %v", err)
 	}
-	if err := WriteManaged(cfg, false, nil); err != nil {
+	if err := WriteManaged(cfg, false, false, nil); err != nil {
 		t.Fatalf("second WriteManaged: %v", err)
 	}
 
@@ -229,7 +229,7 @@ func TestUninit_RemovesBlock(t *testing.T) {
 	cfg := config.Config{}
 	cfg.Git.DefaultBranch = "main"
 
-	if err := WriteManaged(cfg, false, nil); err != nil {
+	if err := WriteManaged(cfg, false, false, nil); err != nil {
 		t.Fatalf("WriteManaged: %v", err)
 	}
 	if err := Uninit(cfg, false); err != nil {
@@ -253,7 +253,7 @@ func TestUninit_DryRun(t *testing.T) {
 	cfg := config.Config{}
 	cfg.Git.DefaultBranch = "main"
 
-	if err := WriteManaged(cfg, false, nil); err != nil {
+	if err := WriteManaged(cfg, false, false, nil); err != nil {
 		t.Fatal(err)
 	}
 	if err := Uninit(cfg, true); err != nil {

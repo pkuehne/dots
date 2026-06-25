@@ -234,7 +234,20 @@ var userSnippetPrefixRe = regexp.MustCompile(`^(\d+)`)
 // deployUserSnippets copies user snippet files from <repoRoot>/shell/ into
 // dir, warning when a numeric prefix falls outside the ranges reserved for
 // user snippets (030-049, 080-089, 090+; generated snippets own the rest).
-func deployUserSnippets(cfg config.Config, dir string, dryRun bool, sec *ui.Section) error {
+// snippetCounts tallies how many snippets/rc files were written versus left
+// unchanged, so the Shell section can print a summary line like the file, repo
+// and tool sections instead of going silent on an idempotent re-run.
+type snippetCounts struct{ wrote, unchanged int }
+
+func (c *snippetCounts) add(changed bool) {
+	if changed {
+		c.wrote++
+	} else {
+		c.unchanged++
+	}
+}
+
+func deployUserSnippets(cfg config.Config, dir string, dryRun, summary bool, sec *ui.Section, c *snippetCounts) error {
 	names, err := userSnippetFiles(cfg.RepoRoot)
 	if err != nil {
 		return err
@@ -255,23 +268,29 @@ func deployUserSnippets(cfg config.Config, dir string, dryRun bool, sec *ui.Sect
 		if err != nil {
 			return err
 		}
-		if err := writeSnippet(filepath.Join(dir, name), content, dryRun, sec); err != nil {
+		if err := writeSnippet(filepath.Join(dir, name), content, dryRun, summary, sec, c); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-// writeSnippet writes one shell.d snippet idempotently and reports a changed
-// snippet as a row under sec. Unchanged snippets produce no write and no row,
-// so apply does not emit one line per untouched snippet.
-func writeSnippet(dst string, content []byte, dryRun bool, sec *ui.Section) error {
+// writeSnippet writes one shell.d snippet idempotently and reports it as a row
+// under sec: "wrote" when the content changed, otherwise "unchanged" (suppressed
+// in summary mode). Listing untouched snippets keeps the Shell section
+// consistent with the file/repo/tool sections, which always show their full set.
+func writeSnippet(dst string, content []byte, dryRun, summary bool, sec *ui.Section, c *snippetCounts) error {
 	changed, err := fileutil.WriteIfChanged(dst, content, 0o644, dryRun)
 	if err != nil {
 		return err
 	}
-	if changed {
-		sec.Status("wrote", dst, dryRun)
+	c.add(changed)
+	if !summary {
+		if changed {
+			sec.Status("wrote", dst, dryRun)
+		} else {
+			sec.Status("unchanged", dst, dryRun)
+		}
 	}
 	return nil
 }
@@ -299,12 +318,35 @@ func toolSnippetFiles(tool config.Tool, platforms []string) map[string]string {
 	return map[string]string{fmt.Sprintf("050-%s.sh", tool.Name): "bash"}
 }
 
+// Apply renders the whole Shell section: it writes the snippets and inserts the
+// rc bootstrapper, then prints a header, one row per managed item and a summary
+// tally — matching the file, repo and tool sections so the section stays visible
+// on an idempotent re-run. In summary mode the unchanged rows are suppressed but
+// the header and tally still print. sec may be nil. With dryRun=true no files
+// are written.
+func Apply(cfg config.Config, dryRun, summary bool, sec *ui.Section) error {
+	sec.Header()
+	var c snippetCounts
+	if err := writeSnippets(cfg, dryRun, summary, sec, &c); err != nil {
+		return err
+	}
+	if err := insertSourceLine(cfg, dryRun, summary, sec, &c); err != nil {
+		return err
+	}
+	sec.Summary(ui.ChangeTally(c.wrote, c.unchanged, dryRun))
+	return nil
+}
+
 // WriteSnippets writes all generated snippets to cfg.Shell.Dir and deploys
-// user snippets from <repoRoot>/shell/. User snippets are deployed first, so
-// a generated snippet wins if a user file shares its name. Only changed
-// snippets print a row under sec, so an unchanged shell config stays quiet.
-// sec may be nil. With dryRun=true no files are written.
+// user snippets from <repoRoot>/shell/, printing a row per snippet under sec.
+// It is the building block used by Apply (which adds the header and summary);
+// callers that only need the files written can use it directly. sec may be nil.
+// With dryRun=true no files are written.
 func WriteSnippets(cfg config.Config, dryRun bool, sec *ui.Section) error {
+	return writeSnippets(cfg, dryRun, false, sec, &snippetCounts{})
+}
+
+func writeSnippets(cfg config.Config, dryRun, summary bool, sec *ui.Section, c *snippetCounts) error {
 	dir := fileutil.Expand(cfg.Shell.Dir)
 
 	if !dryRun {
@@ -313,7 +355,7 @@ func WriteSnippets(cfg config.Config, dryRun bool, sec *ui.Section) error {
 		}
 	}
 
-	if err := deployUserSnippets(cfg, dir, dryRun, sec); err != nil {
+	if err := deployUserSnippets(cfg, dir, dryRun, summary, sec, c); err != nil {
 		return err
 	}
 
@@ -339,7 +381,7 @@ func WriteSnippets(cfg config.Config, dryRun bool, sec *ui.Section) error {
 	}
 	sort.Strings(names)
 	for _, name := range names {
-		if err := writeSnippet(filepath.Join(dir, name), []byte(snippets[name]), dryRun, sec); err != nil {
+		if err := writeSnippet(filepath.Join(dir, name), []byte(snippets[name]), dryRun, summary, sec, c); err != nil {
 			return err
 		}
 	}
@@ -347,9 +389,14 @@ func WriteSnippets(cfg config.Config, dryRun bool, sec *ui.Section) error {
 }
 
 // InsertSourceLine inserts the marker-delimited bootstrapper block into the
-// zshrc and bashrc files listed in cfg.Shell. Changed rc files print a row
-// under sec; sec may be nil.
+// zshrc and bashrc files listed in cfg.Shell, printing a row per rc file under
+// sec ("wrote" when the block changed, otherwise "unchanged"). It is the
+// building block used by Apply; sec may be nil.
 func InsertSourceLine(cfg config.Config, dryRun bool, sec *ui.Section) error {
+	return insertSourceLine(cfg, dryRun, false, sec, &snippetCounts{})
+}
+
+func insertSourceLine(cfg config.Config, dryRun, summary bool, sec *ui.Section, c *snippetCounts) error {
 	for _, rc := range []string{cfg.Shell.Zshrc, cfg.Shell.Bashrc} {
 		path := fileutil.Expand(rc)
 		bootstrapper := zshBootstrapper
@@ -360,8 +407,13 @@ func InsertSourceLine(cfg config.Config, dryRun bool, sec *ui.Section) error {
 		if err != nil {
 			return err
 		}
-		if changed {
-			sec.Status("wrote", "bootstrapper → "+path, dryRun)
+		c.add(changed)
+		if !summary {
+			if changed {
+				sec.Status("wrote", "bootstrapper → "+path, dryRun)
+			} else {
+				sec.Status("unchanged", "bootstrapper → "+path, dryRun)
+			}
 		}
 	}
 	return nil
