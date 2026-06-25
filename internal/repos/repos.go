@@ -12,6 +12,7 @@ import (
 	"github.com/pkuehne/dots/internal/config"
 	"github.com/pkuehne/dots/internal/errs"
 	"github.com/pkuehne/dots/internal/fileutil"
+	"github.com/pkuehne/dots/internal/parallel"
 	"github.com/pkuehne/dots/internal/platform"
 	"github.com/pkuehne/dots/internal/ui"
 )
@@ -34,30 +35,82 @@ func isLatestRef(ref string) bool {
 }
 
 // CloneResult is the outcome of processing one [[repo]] during a clone pass.
-// Action is "cloned" when a clone happened (or would happen in dry-run) and
-// "present" when the repo was already on disk. Printing is left to the caller
-// so apply can render coloured, uniform status lines.
+// Action is "cloned" when a clone happened (or would happen in dry-run),
+// "present" when the repo was already on disk, or "failed" (Err set). Printing
+// is left to the caller so apply can render coloured, uniform status lines.
 type CloneResult struct {
 	Entry  config.RepoEntry
 	Action string
+	Detail string // resolved ref/short-SHA the repo was cloned to (Action "cloned")
+	Err    error  // set when Action is "failed"
 }
 
-// Clone clones any repos that are not yet present on disk and returns a result
-// per active repo. If names is non-empty, only those repos are considered.
-func Clone(cfg config.Config, names []string, dryRun bool) ([]CloneResult, error) {
-	var results []CloneResult
-	for _, r := range active(cfg, names) {
-		status, err := cloneOne(r, dryRun)
+// CloneAll clones any repos not yet present on disk, processing up to jobs at a
+// time and reporting live progress through prog. Already-present repos do no
+// work and open no task — the caller surfaces them as plain status lines, like
+// present tools. Results are returned in config order; the returned error is the
+// first failure encountered (other repos still run).
+func CloneAll(cfg config.Config, names []string, dryRun bool, prog ui.Progress, jobs int) ([]CloneResult, error) {
+	repos := active(cfg, names)
+	results := make([]CloneResult, len(repos))
+
+	var errMu sync.Mutex
+	var firstErr error
+	recordErr := func(err error) {
+		errMu.Lock()
+		if firstErr == nil {
+			firstErr = err
+		}
+		errMu.Unlock()
+	}
+
+	parallel.Run(repos, jobs, func(i int, r config.RepoEntry) {
+		results[i] = cloneRepo(r, dryRun, prog, recordErr)
+	})
+	return results, firstErr
+}
+
+// cloneRepo clones one repo, driving a progress task while the clone runs. A
+// repo already on disk (and a git repo) does no work and gets no task. A dry-run
+// predicts the action without opening a bar, keeping the preview side-effect
+// free.
+func cloneRepo(r config.RepoEntry, dryRun bool, prog ui.Progress, recordErr func(error)) CloneResult {
+	dst := fileutil.Expand(r.Dst)
+	if _, err := os.Stat(filepath.Join(dst, ".git")); err == nil {
+		return CloneResult{Entry: r, Action: "present"}
+	}
+
+	if dryRun {
+		// cloneOne validates the destination (e.g. a non-git dir is an error)
+		// without cloning; surface that prediction without a live bar.
+		status, err := cloneOne(r, true)
 		if err != nil {
-			return results, err
+			recordErr(err)
+			return CloneResult{Entry: r, Action: "failed", Err: err}
 		}
 		action := "present"
 		if status == "ok" {
 			action = "cloned"
 		}
-		results = append(results, CloneResult{Entry: r, Action: action})
+		return CloneResult{Entry: r, Action: action}
 	}
-	return results, nil
+
+	task := prog.Task(r.Name)
+	task.Stage("cloning")
+	status, err := cloneOne(r, false)
+	if err != nil {
+		task.Fail(err)
+		recordErr(err)
+		return CloneResult{Entry: r, Action: "failed", Err: err}
+	}
+	if status != "ok" {
+		// Defensive: the .git pre-check above already handles present repos.
+		task.Done("")
+		return CloneResult{Entry: r, Action: "present"}
+	}
+	detail := refDescriptor(r, dst)
+	task.Done(detail)
+	return CloneResult{Entry: r, Action: "cloned", Detail: detail}
 }
 
 // UpdateResult is the outcome of processing one [[repo]] during an update pass.
@@ -86,12 +139,7 @@ const DefaultJobs = 4
 func Update(cfg config.Config, names []string, dryRun bool, prog ui.Progress, jobs int) ([]UpdateResult, error) {
 	repos := active(cfg, names)
 	results := make([]UpdateResult, len(repos))
-	if jobs < 1 {
-		jobs = 1
-	}
 
-	sem := make(chan struct{}, jobs)
-	var wg sync.WaitGroup
 	var errMu sync.Mutex
 	var firstErr error
 	recordErr := func(err error) {
@@ -102,16 +150,9 @@ func Update(cfg config.Config, names []string, dryRun bool, prog ui.Progress, jo
 		errMu.Unlock()
 	}
 
-	for i, r := range repos {
-		wg.Add(1)
-		sem <- struct{}{}
-		go func(i int, r config.RepoEntry) {
-			defer wg.Done()
-			defer func() { <-sem }()
-			results[i] = updateRepo(r, dryRun, prog, recordErr)
-		}(i, r)
-	}
-	wg.Wait()
+	parallel.Run(repos, jobs, func(i int, r config.RepoEntry) {
+		results[i] = updateRepo(r, dryRun, prog, recordErr)
+	})
 	return results, firstErr
 }
 

@@ -47,13 +47,14 @@ internal/platform/ OS/arch detection — implemented
 internal/errs/     DotsError, ConfigError, ToolInstallError — implemented
 internal/fileutil/ Expand, Sha256File, Backup, EnsureParent, CopyFile — implemented
 internal/discovery/ File discovery (Walk) — implemented
-internal/deploy/   File deployment — symlink/copy/decrypt (.age); all other files (incl. .j2) deploy verbatim — implemented
+internal/deploy/   File deployment (ApplyAll/ApplyAllLive) — symlink/copy/decrypt (.age); all other files (incl. .j2) deploy verbatim — implemented
 internal/shell/    Snippet generation + InsertBlock/RemoveBlock — implemented
 internal/git/      Git config generation + WriteManaged/Uninit — implemented
 internal/ssh/      SSH config generation + WriteManaged/Uninit — implemented
 internal/secrets/  age encrypt/decrypt — implemented
 internal/presets/  Preset generation + Eject — implemented
-internal/repos/    Repo cloning + Update/Status (asserts ref) — implemented
+internal/repos/    Repo cloning (CloneAll) + Update/Status (asserts ref) — implemented
+internal/parallel/ Bounded worker-pool helper (Run) shared by the concurrent commands — implemented
 internal/tools/    Check, Install, Filter, VersionStatus, Update + GitHub release download — implemented
 internal/lockfile/ Records installed tool versions (~/.config/dots/installed.toml) — implemented
 internal/ghrelease/ Shared GitHub release client (resolve + download) — implemented

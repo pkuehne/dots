@@ -242,6 +242,7 @@ func (t *recordingTask) Stage(msg string) {
 	t.p.mu.Unlock()
 }
 func (t *recordingTask) SetTotal(int64)              {}
+func (t *recordingTask) Advance(int64)               {}
 func (t *recordingTask) Write(p []byte) (int, error) { return len(p), nil }
 func (t *recordingTask) Done(detail string) {
 	t.p.mu.Lock()

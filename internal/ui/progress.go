@@ -36,9 +36,14 @@ type Task interface {
 	// Stage sets the short status shown while the work is in flight
 	// (e.g. "resolving", "downloading", "installing").
 	Stage(msg string)
-	// SetTotal declares the download size once known so the bar can fill; a
+	// SetTotal declares the work size once known so the bar can fill: a byte
+	// count for a download, or a step count for a discrete multi-step op. A
 	// non-positive total leaves the bar indeterminate.
 	SetTotal(total int64)
+	// Advance moves the bar forward by n units of a step-counted task (its total
+	// set via SetTotal). It is the discrete-step counterpart to Write, which
+	// advances by a number of transferred bytes.
+	Advance(n int64)
 	// Done marks the work finished, showing detail (e.g. "14.1.0 → 14.1.1").
 	Done(detail string)
 	// Fail marks the work failed, showing err.
@@ -170,6 +175,8 @@ func (t *barTask) Write(p []byte) (int, error) {
 	return len(p), nil
 }
 
+func (t *barTask) Advance(n int64) { t.bar.IncrBy(int(n)) }
+
 func (t *barTask) Done(detail string) {
 	t.mu.Lock()
 	t.detail = detail
@@ -208,6 +215,7 @@ func (t *lineTask) log(s string) {
 
 func (t *lineTask) Stage(msg string)            { t.log(msg) }
 func (t *lineTask) SetTotal(int64)              {}
+func (t *lineTask) Advance(int64)               {}
 func (t *lineTask) Write(p []byte) (int, error) { return len(p), nil }
 func (t *lineTask) Done(detail string)          { t.log("done " + detail) }
 func (t *lineTask) Fail(err error)              { t.log("failed: " + errText(err)) }
@@ -228,6 +236,7 @@ type discardTask struct{}
 
 func (discardTask) Stage(string)                {}
 func (discardTask) SetTotal(int64)              {}
+func (discardTask) Advance(int64)               {}
 func (discardTask) Write(p []byte) (int, error) { return len(p), nil }
 func (discardTask) Done(string)                 {}
 func (discardTask) Fail(error)                  {}

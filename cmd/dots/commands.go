@@ -221,8 +221,12 @@ func runApply(cfg config.Config, fileArgs []string, dryRun, forceCopy, summary b
 		entries = filtered
 	}
 
-	results := deploy.ApplyAll(entries, opts)
-	if n := printResults(results, dryRun, summary); n > 0 {
+	sec := ui.NewSection("Files")
+	sec.Header()
+	prog := ui.NewProgress(dryRun)
+	results := deploy.ApplyAllLive(entries, opts, prog, jobs)
+	prog.Wait()
+	if n := printResults(sec, results, dryRun, summary); n > 0 {
 		return errs.New(
 			fmt.Sprintf("%d file(s) failed to deploy", n),
 			"See errors above.",
@@ -242,7 +246,7 @@ func runApply(cfg config.Config, fileArgs []string, dryRun, forceCopy, summary b
 	if err := applySSH(cfg, dryRun, summary); err != nil {
 		return err
 	}
-	if err := applyRepos(cfg, dryRun, summary); err != nil {
+	if err := applyRepos(cfg, dryRun, summary, jobs); err != nil {
 		return err
 	}
 	if err := applyPresets(cfg, dryRun, summary); err != nil {
@@ -278,40 +282,55 @@ func applySSH(cfg config.Config, dryRun, summary bool) error {
 	return gossh.WriteManaged(cfg, platform.Platforms(), dryRun, summary, ui.NewSection("SSH"))
 }
 
-func applyRepos(cfg config.Config, dryRun, summary bool) error {
+func applyRepos(cfg config.Config, dryRun, summary bool, jobs int) error {
 	if len(cfg.Repos) == 0 {
 		return nil
 	}
-	results, err := repos.Clone(cfg, nil, dryRun)
-	printCloneResults(results, dryRun, summary)
+	sec := ui.NewSection("Repos")
+	sec.Header()
+	prog := ui.NewProgress(dryRun)
+	results, err := repos.CloneAll(cfg, nil, dryRun, prog, jobs)
+	prog.Wait()
+	printCloneResults(sec, results, dryRun, summary)
 	return err
 }
 
-// printCloneResults renders the Repos section: one coloured status row per repo
-// (unless summary) under a header, followed by a tally. Listing every repo —
-// including ones already cloned — keeps it consistent with the file and tool
-// sections rather than only reporting the ones it touched.
-func printCloneResults(results []repos.CloneResult, dryRun, summary bool) {
-	sec := ui.NewSection("Repos")
-	sec.Header()
-	cloned, present := 0, 0
+// printCloneResults renders the Repos section tally and the rows the live
+// progress region did not already show. In a live run the freshly cloned repos
+// were displayed by their progress bars, so only already-present repos, dry-run
+// predictions, and failures are printed here. Listing present repos too keeps it
+// consistent with the file and tool sections rather than only reporting the ones
+// it touched. The section header is expected to have been printed by the caller.
+func printCloneResults(sec *ui.Section, results []repos.CloneResult, dryRun, summary bool) {
+	cloned, present, failed := 0, 0, 0
 	for _, r := range results {
 		switch r.Action {
 		case "cloned":
 			cloned++
+			// In dry-run nothing ran live, so print the predicted row.
+			if !summary && dryRun {
+				sec.Status("cloned", r.Entry.Name, dryRun)
+			}
 		case "present":
 			present++
+			if !summary {
+				sec.Status("present", r.Entry.Name, dryRun)
+			}
+		case "failed":
+			fmt.Fprintf(os.Stderr, "  %s %s  %s: %v\n", colorize(cRed, "✗"),
+				colorize(cRed, fmt.Sprintf("%-*s", ui.LabelWidth, "error")), r.Entry.Name, r.Err)
+			failed++
 		}
-		if summary {
-			continue
-		}
-		sec.Status(r.Action, r.Entry.Dst, dryRun)
 	}
 	verb := "cloned"
 	if dryRun {
 		verb = "to clone"
 	}
-	sec.Summary(fmt.Sprintf("%d %s, %d present", cloned, verb, present))
+	tally := fmt.Sprintf("%d %s, %d present", cloned, verb, present)
+	if failed > 0 {
+		tally += fmt.Sprintf(", %d errors", failed)
+	}
+	sec.Summary(tally)
 }
 
 // printRepoUpdateResults renders the outcome of `dots repos update`, mirroring
@@ -612,9 +631,13 @@ func applyLoginShell(cfg config.Config, dryRun, summary bool) error {
 	return nil
 }
 
-func printResults(results []deploy.Result, dryRun, summary bool) int {
-	sec := ui.NewSection("Files")
-	sec.Header()
+// printResults renders the Files section tally and the rows the live progress
+// region did not already show. Entries processed through a live task (Result.Live
+// set) were already displayed by their progress bars, so only the residual rows
+// (skipped/missing) and any errors are printed here. In dry-run nothing ran live,
+// so every predicted row prints. The section header is expected to have been
+// printed by the caller.
+func printResults(sec *ui.Section, results []deploy.Result, dryRun, summary bool) int {
 	counts := map[string]int{}
 	for _, r := range results {
 		if r.Err != nil {
@@ -631,7 +654,7 @@ func printResults(results []deploy.Result, dryRun, summary bool) int {
 		} else {
 			counts[r.Action]++
 		}
-		if summary {
+		if summary || r.Live {
 			continue
 		}
 		sec.Status(r.Action, r.Entry.Dst, dryRun)
@@ -1635,16 +1658,22 @@ func newReposCmd() *cobra.Command {
 	cmd := &cobra.Command{Use: "repos", Short: "Manage git repositories"}
 
 	var cloneDryRun bool
+	var cloneJobs int
 	clone := &cobra.Command{
 		Use:   "clone [names...]",
 		Short: "Clone missing repos",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			results, err := repos.Clone(globals.cfg, args, cloneDryRun)
-			printCloneResults(results, cloneDryRun, false)
+			sec := ui.NewSection("Repos")
+			sec.Header()
+			prog := ui.NewProgress(cloneDryRun)
+			results, err := repos.CloneAll(globals.cfg, args, cloneDryRun, prog, cloneJobs)
+			prog.Wait()
+			printCloneResults(sec, results, cloneDryRun, false)
 			return err
 		},
 	}
 	clone.Flags().BoolVarP(&cloneDryRun, "dry-run", "n", false, "print actions without executing")
+	clone.Flags().IntVarP(&cloneJobs, "jobs", "j", repos.DefaultJobs, "max repos to clone concurrently")
 
 	var updateDryRun bool
 	var updateJobs int
