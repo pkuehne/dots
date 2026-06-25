@@ -61,9 +61,10 @@ func Clone(cfg config.Config, names []string, dryRun bool) ([]CloneResult, error
 }
 
 // UpdateResult is the outcome of processing one [[repo]] during an update pass.
-// Action is one of "updated", "would-update" (dry-run), "skipped-missing" (not
-// cloned), or "skipped-dirty" (uncommitted local changes). Printing is left to
-// the caller so the command renders uniform status lines.
+// Action is one of "updated", "uptodate" (already at target), "would-update"
+// (dry-run), "skipped-missing" (not cloned), "skipped-dirty" (uncommitted local
+// changes), or "failed" (Err set). Printing is left to the caller so the command
+// renders uniform status lines.
 type UpdateResult struct {
 	Entry  config.RepoEntry
 	Action string

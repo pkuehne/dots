@@ -5,8 +5,11 @@ package ui
 // `apply`). On a terminal this is a docker-style stack of bars — one row per
 // unit of work, each advancing through its stages (resolving → downloading →
 // installing) concurrently. Off a terminal (pipes, CI) it degrades to plain,
-// ANSI-free line logging so captured output stays clean; in dry-run it renders
-// nothing (the command prints the predicted action list instead).
+// ANSI-free line logging so captured output stays clean. Dry-run keeps the
+// read-only resolve feedback: on a terminal the bars are transient (each row
+// clears on completion) so nothing lingers before the command prints its
+// predicted-action list; off a terminal dry-run renders nothing (the list is
+// enough).
 //
 // Work packages depend only on the small Progress/Task interfaces below, never
 // on mpb directly, so the renderer stays swappable and the packages stay
@@ -179,7 +182,7 @@ func (t *barTask) Done(detail string) {
 func (t *barTask) Fail(err error) {
 	t.mu.Lock()
 	t.failed = true
-	t.detail = err.Error()
+	t.detail = errText(err)
 	t.mu.Unlock()
 	t.bar.Abort(false) // keep the aborted row on screen
 }
@@ -207,7 +210,7 @@ func (t *lineTask) Stage(msg string)            { t.log(msg) }
 func (t *lineTask) SetTotal(int64)              {}
 func (t *lineTask) Write(p []byte) (int, error) { return len(p), nil }
 func (t *lineTask) Done(detail string)          { t.log("done " + detail) }
-func (t *lineTask) Fail(err error)              { t.log("failed: " + err.Error()) }
+func (t *lineTask) Fail(err error)              { t.log("failed: " + errText(err)) }
 
 // ── no-op (dry-run / tests) ─────────────────────────────────────────────────────
 
@@ -230,6 +233,15 @@ func (discardTask) Done(string)                 {}
 func (discardTask) Fail(error)                  {}
 
 // ── helpers ─────────────────────────────────────────────────────────────────────
+
+// errText renders an error for a status row, tolerating a nil error (the Task
+// interface does not forbid Fail(nil)) so a stray nil never panics the renderer.
+func errText(err error) string {
+	if err == nil {
+		return "failed"
+	}
+	return err.Error()
+}
 
 // humanBytes formats a byte count in binary units (KiB, MiB, …).
 func humanBytes(n int64) string {

@@ -192,6 +192,9 @@ func InstallAll(cfg config.Config, list []config.Tool, plat, arch string, opts I
 				return
 			}
 			if opts.DryRun {
+				// Terminate the task so Progress.Wait returns; on a TTY dry-run
+				// prog is the transient bar renderer, so this clears the row.
+				task.Done("")
 				results[i] = InstallResult{Tool: t, Action: "would-install"}
 				return
 			}
