@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 
 	"github.com/mholt/archives"
 	"github.com/pkuehne/dots/internal/config"
@@ -21,6 +22,7 @@ import (
 	"github.com/pkuehne/dots/internal/ghrelease"
 	"github.com/pkuehne/dots/internal/lockfile"
 	"github.com/pkuehne/dots/internal/platform"
+	"github.com/pkuehne/dots/internal/ui"
 )
 
 // CheckResult is the outcome of checking whether one tool is present.
@@ -38,6 +40,11 @@ type InstallOptions struct {
 	// `tools status` and `tools update` can track them. The caller owns
 	// persisting it with Lock.Save() after a batch of installs.
 	Lock *lockfile.Lock
+
+	// Task, when non-nil, receives live progress for a github install: the
+	// current stage and the download byte stream. Other install methods report
+	// only their stage. nil means no progress reporting.
+	Task ui.Task
 }
 
 // ── Public API ────────────────────────────────────────────────────────────────
@@ -131,7 +138,14 @@ func Install(tool config.Tool, cfg config.Config, plat, arch string, opts Instal
 	}
 	binDir = fileutil.Expand(binDir)
 
-	version, err := installTool(tool, *inst, plat, binDir)
+	// A nil task means "no progress reporting"; substitute a no-op so the
+	// install path can report unconditionally without nil checks.
+	task := opts.Task
+	if task == nil {
+		task = ui.DiscardProgress().Task("")
+	}
+
+	version, err := installTool(tool, *inst, plat, binDir, task)
 	if err != nil {
 		return err
 	}
@@ -139,6 +153,63 @@ func Install(tool config.Tool, cfg config.Config, plat, arch string, opts Instal
 		opts.Lock.Set(tool.Name, lockfile.Entry{Version: version})
 	}
 	return nil
+}
+
+// InstallResult is the outcome of installing one tool in a batch.
+type InstallResult struct {
+	Tool   config.Tool
+	Action string // "installed", "would-install", or "failed"
+	Err    error  // set when Action is "failed"
+}
+
+// InstallAll installs each tool in list concurrently (up to jobs at a time),
+// driving a live progress task per tool through prog. opts carries DryRun/Force/
+// Lock; the per-tool Task is set by InstallAll. Results are returned in list
+// order. The caller persists opts.Lock with Lock.Save() afterwards and decides
+// how to surface failures (each is also recorded on its result).
+func InstallAll(cfg config.Config, list []config.Tool, plat, arch string, opts InstallOptions, prog ui.Progress, jobs int) []InstallResult {
+	results := make([]InstallResult, len(list))
+	if jobs < 1 {
+		jobs = 1
+	}
+
+	sem := make(chan struct{}, jobs)
+	var wg sync.WaitGroup
+
+	for i, t := range list {
+		wg.Add(1)
+		sem <- struct{}{}
+		go func(i int, t config.Tool) {
+			defer wg.Done()
+			defer func() { <-sem }()
+
+			task := prog.Task(t.Name)
+			o := opts
+			o.Task = task
+			if err := Install(t, cfg, plat, arch, o); err != nil {
+				task.Fail(err)
+				results[i] = InstallResult{Tool: t, Action: "failed", Err: err}
+				return
+			}
+			if opts.DryRun {
+				// Terminate the task so Progress.Wait returns; on a TTY dry-run
+				// prog is the transient bar renderer, so this clears the row.
+				task.Done("")
+				results[i] = InstallResult{Tool: t, Action: "would-install"}
+				return
+			}
+			detail := ""
+			if opts.Lock != nil {
+				if e, ok := opts.Lock.Get(t.Name); ok {
+					detail = e.Version
+				}
+			}
+			task.Done(detail)
+			results[i] = InstallResult{Tool: t, Action: "installed"}
+		}(i, t)
+	}
+	wg.Wait()
+	return results
 }
 
 // ── Internal helpers ──────────────────────────────────────────────────────────
@@ -204,7 +275,13 @@ func findInstallMethod(tool config.Tool, plat string) *config.ToolInstall {
 // installTool runs the install for inst and returns the version it installed,
 // or "" when the method does not expose a trackable version (everything except
 // github, whose releases dots resolves and records in the lockfile).
-func installTool(tool config.Tool, inst config.ToolInstall, plat, binDir string) (string, error) {
+func installTool(tool config.Tool, inst config.ToolInstall, plat, binDir string, task ui.Task) (string, error) {
+	// Package-manager and script methods are opaque (they run their own tool);
+	// report a single "installing" stage so the row shows life while they run.
+	// The github method drives finer-grained stages of its own below.
+	if inst.Method != "github" {
+		task.Stage("installing")
+	}
 	switch inst.Method {
 	case "pkg":
 		return "", runCmd("pkg", "install", "-y", inst.Package)
@@ -252,7 +329,7 @@ func installTool(tool config.Tool, inst config.ToolInstall, plat, binDir string)
 		return "", runCmd("npm", "install", "-g", inst.Package)
 
 	case "github":
-		return installGitHub(tool, inst, binDir)
+		return installGitHub(tool, inst, binDir, task)
 
 	case "script":
 		cmd := exec.Command("sh", "-c", inst.Script)
@@ -297,7 +374,8 @@ func runCmd(name string, args ...string) error {
 // installGitHub installs a tool from a GitHub release and returns the version
 // (release tag without a leading "v") that was installed, so the caller can
 // record it in the lockfile.
-func installGitHub(tool config.Tool, inst config.ToolInstall, binDir string) (string, error) {
+func installGitHub(tool config.Tool, inst config.ToolInstall, binDir string, task ui.Task) (string, error) {
+	task.Stage("resolving")
 	release, err := resolveRelease(inst)
 	if err != nil {
 		return "", err
@@ -361,7 +439,8 @@ func installGitHub(tool config.Tool, inst config.ToolInstall, binDir string) (st
 	defer os.RemoveAll(tmpDir)
 
 	downloadPath := filepath.Join(tmpDir, matched.Name)
-	if err := ghrelease.DownloadAsset(matched.BrowserDownloadURL, downloadPath); err != nil {
+	task.Stage("downloading")
+	if err := ghrelease.DownloadAsset(matched.BrowserDownloadURL, downloadPath, task); err != nil {
 		return "", err
 	}
 
@@ -371,6 +450,7 @@ func installGitHub(tool config.Tool, inst config.ToolInstall, binDir string) (st
 	}
 	dest := filepath.Join(binDir, binaryName)
 
+	task.Stage("installing")
 	if isExtractableArchive(matched.Name) {
 		extractDir := filepath.Join(tmpDir, "extracted")
 		if err := extractArchive(downloadPath, extractDir); err != nil {

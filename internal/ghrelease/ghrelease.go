@@ -96,8 +96,18 @@ func getRelease(repo, url string) (*Release, error) {
 	return &release, nil
 }
 
-// DownloadAsset streams the asset at url to the file dest.
-func DownloadAsset(url, dest string) error {
+// DownloadSink observes a download's progress. SetTotal is called once with the
+// content length (or -1 when the server does not report one) before any bytes
+// are copied, and the sink then receives every chunk written to disk via Write
+// so a caller can drive a progress bar. A nil sink disables progress reporting.
+type DownloadSink interface {
+	SetTotal(total int64)
+	io.Writer
+}
+
+// DownloadAsset streams the asset at url to the file dest, reporting progress to
+// sink when it is non-nil.
+func DownloadAsset(url, dest string, sink DownloadSink) error {
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		return errs.NewTool("cannot build asset download request", err.Error())
@@ -126,7 +136,15 @@ func DownloadAsset(url, dest string) error {
 	}
 	defer f.Close()
 
-	if _, err := io.Copy(f, resp.Body); err != nil {
+	// Tee the copy through the sink so progress is accounted as bytes land on
+	// disk. resp.ContentLength is -1 when the server omits Content-Length, which
+	// the sink renders as an indeterminate download.
+	dst := io.Writer(f)
+	if sink != nil {
+		sink.SetTotal(resp.ContentLength)
+		dst = io.MultiWriter(f, sink)
+	}
+	if _, err := io.Copy(dst, resp.Body); err != nil {
 		return errs.NewTool("failed to write downloaded asset", err.Error())
 	}
 	return nil

@@ -162,7 +162,7 @@ func Run(opts Options) (Result, error) {
 	tmp.Close()
 	defer os.Remove(tmpPath) // no-op once renamed away
 
-	if err := ghrelease.DownloadAsset(asset.BrowserDownloadURL, tmpPath); err != nil {
+	if err := ghrelease.DownloadAsset(asset.BrowserDownloadURL, tmpPath, nil); err != nil {
 		return res, err
 	}
 	if err := os.Chmod(tmpPath, 0o755); err != nil {

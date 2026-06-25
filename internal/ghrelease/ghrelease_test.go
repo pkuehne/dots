@@ -119,7 +119,8 @@ func TestDownloadAsset(t *testing.T) {
 	}
 
 	dest := filepath.Join(t.TempDir(), "out")
-	if err := DownloadAsset(rel.Assets[0].BrowserDownloadURL, dest); err != nil {
+	sink := &recordingSink{}
+	if err := DownloadAsset(rel.Assets[0].BrowserDownloadURL, dest, sink); err != nil {
 		t.Fatalf("DownloadAsset: %v", err)
 	}
 	got, err := os.ReadFile(dest)
@@ -129,7 +130,26 @@ func TestDownloadAsset(t *testing.T) {
 	if string(got) != string(content) {
 		t.Errorf("downloaded %q, want %q", got, content)
 	}
+	if !sink.totalSet {
+		t.Error("sink.SetTotal was not called")
+	}
+	if sink.written != int64(len(content)) {
+		t.Errorf("sink saw %d bytes, want %d", sink.written, len(content))
+	}
 	_ = srv
+}
+
+// recordingSink is a DownloadSink that counts what it observed.
+type recordingSink struct {
+	totalSet bool
+	total    int64
+	written  int64
+}
+
+func (s *recordingSink) SetTotal(total int64) { s.totalSet = true; s.total = total }
+func (s *recordingSink) Write(p []byte) (int, error) {
+	s.written += int64(len(p))
+	return len(p), nil
 }
 
 func TestDownloadAssetHTTPError(t *testing.T) {
@@ -137,7 +157,7 @@ func TestDownloadAssetHTTPError(t *testing.T) {
 		w.WriteHeader(http.StatusNotFound)
 	}))
 	defer srv.Close()
-	if err := DownloadAsset(srv.URL+"/missing", filepath.Join(t.TempDir(), "out")); err == nil {
+	if err := DownloadAsset(srv.URL+"/missing", filepath.Join(t.TempDir(), "out"), nil); err == nil {
 		t.Fatal("expected error for non-200 download")
 	}
 }

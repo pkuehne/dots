@@ -58,6 +58,7 @@ internal/tools/    Check, Install, Filter, VersionStatus, Update + GitHub releas
 internal/lockfile/ Records installed tool versions (~/.config/dots/installed.toml) — implemented
 internal/ghrelease/ Shared GitHub release client (resolve + download) — implemented
 internal/selfupdate/ Self-upgrade the dots binary (dots upgrade) — implemented
+internal/ui/       Status-line vocabulary (Section) + live concurrent progress bars (Progress/Task, mpb-backed) — implemented
 ```
 
 ## Key invariants

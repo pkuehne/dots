@@ -137,6 +137,16 @@ then records the new version in the lockfile. It is idempotent: a second run
 reports everything up to date. Use `--dry-run` to preview and `--tag` to filter.
 Tools installed by a package manager are reported as `untracked` and left alone.
 
+Updates and installs run concurrently with a live, docker-style progress
+display — one row per tool advancing through resolving → downloading →
+installing. `-j/--jobs` sets how many run at once (default 4). The display is
+shown only on a terminal; piped output degrades to plain lines. `--dry-run`
+performs no writes, but on a terminal it still shows the read-only version
+resolve live (transient rows that clear) before printing the predicted
+`current → target` actions; piped dry-run prints just the table. `dots tools
+install` and the install phase of `dots apply` share the same display and `-j`
+flag.
+
 ## Repositories — `[[repo]]`
 
 Each `[[repo]]` clones a git repository to `dst`.
@@ -165,7 +175,13 @@ ref  = "v3.1.0"   # pinned: update asserts this tag
 SHA is checked out exactly (detached); a pinned branch is reset to its remote
 tip so a moved branch is honoured. With `ref` unset or `"latest"`, dots tracks
 the default branch as before. A repo with uncommitted changes is skipped so
-local work is never discarded.
+local work is never discarded. Repos update concurrently with a live progress
+display (`-j/--jobs`, default 4), the same as tools — each finished row shows the
+ref the clone was brought to (the pinned ref, or a short SHA when tracking the
+default branch). `--dry-run` performs no writes but, like `tools update`,
+resolves each repo read-only (a local `rev-parse` plus a remote `git ls-remote`,
+no fetch) to predict `current → target` and mark repos already at their target
+as up to date.
 
 `dots repos status` shows `≠ ref <x>` when HEAD has drifted off a pinned ref,
 alongside the existing `missing`, `dirty`, and `behind N` states.

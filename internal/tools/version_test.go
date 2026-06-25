@@ -6,11 +6,13 @@ import (
 	"net/http/httptest"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/pkuehne/dots/internal/config"
 	"github.com/pkuehne/dots/internal/ghrelease"
 	"github.com/pkuehne/dots/internal/lockfile"
+	"github.com/pkuehne/dots/internal/ui"
 )
 
 // newVersionServer serves a fake release whose latest tag is latestTag and which
@@ -162,7 +164,7 @@ func TestUpdate_ReinstallsOutdated(t *testing.T) {
 		}},
 	}
 
-	results, err := Update(cfg, nil, "", "linux", "x86_64", lock, false)
+	results, err := Update(cfg, nil, "", "linux", "x86_64", lock, false, ui.DiscardProgress(), 1)
 	if err != nil {
 		t.Fatalf("Update: %v", err)
 	}
@@ -187,7 +189,7 @@ func TestUpdate_DryRunNoChange(t *testing.T) {
 		Install: []config.ToolInstall{{Method: "github", Repo: "a/b"}},
 	}}}
 
-	results, err := Update(cfg, nil, "", "linux", "x86_64", lock, true)
+	results, err := Update(cfg, nil, "", "linux", "x86_64", lock, true, ui.DiscardProgress(), 1)
 	if err != nil {
 		t.Fatalf("Update dry-run: %v", err)
 	}
@@ -204,11 +206,108 @@ func TestUpdate_Untracked(t *testing.T) {
 	cfg := config.Config{Tools: []config.Tool{{
 		Name: "rg", Install: []config.ToolInstall{{Method: "apt", Package: "rg"}},
 	}}}
-	results, err := Update(cfg, nil, "", "linux", "x86_64", lock, false)
+	results, err := Update(cfg, nil, "", "linux", "x86_64", lock, false, ui.DiscardProgress(), 1)
 	if err != nil {
 		t.Fatalf("Update: %v", err)
 	}
 	if len(results) != 1 || results[0].Action != "untracked" {
 		t.Fatalf("want untracked, got %+v", results)
+	}
+}
+
+// recordingProgress is a thread-safe ui.Progress that records, per task name,
+// the stages it was driven through and how it terminated. It lets tests assert
+// the live-progress contract without a terminal.
+type recordingProgress struct {
+	mu     sync.Mutex
+	stages map[string][]string
+	done   map[string]string
+}
+
+func newRecordingProgress() *recordingProgress {
+	return &recordingProgress{stages: map[string][]string{}, done: map[string]string{}}
+}
+
+func (p *recordingProgress) Task(name string) ui.Task { return &recordingTask{p: p, name: name} }
+func (p *recordingProgress) Wait()                    {}
+
+type recordingTask struct {
+	p    *recordingProgress
+	name string
+}
+
+func (t *recordingTask) Stage(msg string) {
+	t.p.mu.Lock()
+	t.p.stages[t.name] = append(t.p.stages[t.name], msg)
+	t.p.mu.Unlock()
+}
+func (t *recordingTask) SetTotal(int64)              {}
+func (t *recordingTask) Write(p []byte) (int, error) { return len(p), nil }
+func (t *recordingTask) Done(detail string) {
+	t.p.mu.Lock()
+	t.p.done[t.name] = "done:" + detail
+	t.p.mu.Unlock()
+}
+func (t *recordingTask) Fail(err error) {
+	t.p.mu.Lock()
+	t.p.done[t.name] = "fail:" + err.Error()
+	t.p.mu.Unlock()
+}
+
+// TestUpdate_ConcurrentOrderingAndStages runs several outdated tools through a
+// concurrent Update and asserts results keep config order, each tool is driven
+// through the github stages, and the lockfile records every new version.
+func TestUpdate_ConcurrentOrderingAndStages(t *testing.T) {
+	asset := "tool_1.0.0_Linux_x86_64.tar.gz"
+	data := makeTarGz(t,
+		[]struct{ name, content string }{{"tool", "#!/bin/sh\necho tool"}}, nil)
+	newVersionServer(t, "v1.0.0", asset, data)
+
+	binDir := t.TempDir()
+	lock, _ := lockfile.Load(filepath.Join(t.TempDir(), "lock.toml"))
+
+	names := []string{"alpha", "bravo", "charlie", "delta", "echo"}
+	var toolList []config.Tool
+	for _, n := range names {
+		lock.Set(n, lockfile.Entry{Version: "0.9.0"})
+		toolList = append(toolList, config.Tool{
+			Name:  n,
+			Check: "true",
+			Install: []config.ToolInstall{{
+				Method: "github",
+				Repo:   "a/" + n,
+				Asset:  "tool_{version}_Linux_x86_64.tar.gz",
+				Binary: "tool",
+			}},
+		})
+	}
+	cfg := config.Config{ToolsConfig: config.ToolsConfig{BinDir: binDir}, Tools: toolList}
+
+	prog := newRecordingProgress()
+	results, err := Update(cfg, nil, "", "linux", "x86_64", lock, false, prog, 4)
+	if err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+
+	if len(results) != len(names) {
+		t.Fatalf("got %d results, want %d", len(results), len(names))
+	}
+	for i, n := range names {
+		if results[i].Tool.Name != n {
+			t.Errorf("result[%d] = %q, want config order %q", i, results[i].Tool.Name, n)
+		}
+		if results[i].Action != "updated" {
+			t.Errorf("%s action = %q, want updated", n, results[i].Action)
+		}
+		stages := prog.stages[n]
+		if len(stages) == 0 || stages[0] != "resolving" {
+			t.Errorf("%s stages = %v, want them to start with resolving", n, stages)
+		}
+		if prog.done[n] != "done:0.9.0 → 1.0.0" {
+			t.Errorf("%s terminated as %q, want done:0.9.0 → 1.0.0", n, prog.done[n])
+		}
+		if e, _ := lock.Get(n); e.Version != "1.0.0" {
+			t.Errorf("%s lock = %q, want 1.0.0", n, e.Version)
+		}
 	}
 }
