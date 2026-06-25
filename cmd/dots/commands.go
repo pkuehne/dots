@@ -1435,7 +1435,7 @@ func printUpdateResults(results []tools.UpdateResult) {
 			printStatusLine("update", fmt.Sprintf("%s %s → %s", r.Tool.Name, displayVer(r.From), r.To), true)
 			changed++
 		case "would-install":
-			printStatusLine("install", fmt.Sprintf("%s %s", r.Tool.Name, r.To), true)
+			printStatusLine("install", fmt.Sprintf("%s %s → %s", r.Tool.Name, displayVer(r.From), r.To), true)
 			changed++
 		case "uptodate":
 			printStatusLine("up-to-date", fmt.Sprintf("%s %s", r.Tool.Name, r.To), false)
@@ -1507,11 +1507,12 @@ func printVersionStatus(states []tools.VersionState) {
 	}
 }
 
-// displayVer renders a version for output, substituting a dash for the empty
-// string (e.g. a tool tracked but never recorded in the lockfile).
+// displayVer renders a version for output, substituting "unknown" for the empty
+// string (e.g. a tool present on disk but never recorded in the lockfile, so its
+// installed version is not known without querying the binary).
 func displayVer(v string) string {
 	if v == "" {
-		return "—"
+		return "unknown"
 	}
 	return v
 }
