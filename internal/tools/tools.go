@@ -19,6 +19,7 @@ import (
 	"github.com/pkuehne/dots/internal/errs"
 	"github.com/pkuehne/dots/internal/fileutil"
 	"github.com/pkuehne/dots/internal/ghrelease"
+	"github.com/pkuehne/dots/internal/lockfile"
 	"github.com/pkuehne/dots/internal/platform"
 )
 
@@ -32,6 +33,11 @@ type CheckResult struct {
 type InstallOptions struct {
 	DryRun bool
 	Force  bool // reinstall even if already present
+
+	// Lock, when non-nil, records the installed version of github tools so
+	// `tools status` and `tools update` can track them. The caller owns
+	// persisting it with Lock.Save() after a batch of installs.
+	Lock *lockfile.Lock
 }
 
 // ── Public API ────────────────────────────────────────────────────────────────
@@ -125,7 +131,14 @@ func Install(tool config.Tool, cfg config.Config, plat, arch string, opts Instal
 	}
 	binDir = fileutil.Expand(binDir)
 
-	return installTool(tool, *inst, plat, binDir)
+	version, err := installTool(tool, *inst, plat, binDir)
+	if err != nil {
+		return err
+	}
+	if version != "" && opts.Lock != nil {
+		opts.Lock.Set(tool.Name, lockfile.Entry{Version: version})
+	}
+	return nil
 }
 
 // ── Internal helpers ──────────────────────────────────────────────────────────
@@ -188,14 +201,17 @@ func findInstallMethod(tool config.Tool, plat string) *config.ToolInstall {
 	return nil
 }
 
-func installTool(tool config.Tool, inst config.ToolInstall, plat, binDir string) error {
+// installTool runs the install for inst and returns the version it installed,
+// or "" when the method does not expose a trackable version (everything except
+// github, whose releases dots resolves and records in the lockfile).
+func installTool(tool config.Tool, inst config.ToolInstall, plat, binDir string) (string, error) {
 	switch inst.Method {
 	case "pkg":
-		return runCmd("pkg", "install", "-y", inst.Package)
+		return "", runCmd("pkg", "install", "-y", inst.Package)
 
 	case "apt":
 		if plat == "termux" {
-			return errs.NewTool(
+			return "", errs.NewTool(
 				"install method 'apt' requires sudo, which is not available on Termux",
 				fmt.Sprintf("Use 'pkg' instead:\n  dots tools install %s", tool.Name),
 			)
@@ -204,36 +220,36 @@ func installTool(tool config.Tool, inst config.ToolInstall, plat, binDir string)
 		if os.Getuid() != 0 {
 			args = append([]string{"sudo"}, args...)
 		}
-		return runCmd(args[0], args[1:]...)
+		return "", runCmd(args[0], args[1:]...)
 
 	case "brew":
-		return runCmd("brew", "install", inst.Package)
+		return "", runCmd("brew", "install", inst.Package)
 
 	case "cargo":
 		if inst.Binary != "" {
-			return runCmd("cargo", "install", inst.Package, "--bin", inst.Binary)
+			return "", runCmd("cargo", "install", inst.Package, "--bin", inst.Binary)
 		}
-		return runCmd("cargo", "install", inst.Package)
+		return "", runCmd("cargo", "install", inst.Package)
 
 	case "go":
 		pkg := inst.Package
 		if !strings.HasSuffix(pkg, "@latest") {
 			pkg += "@latest"
 		}
-		return runCmd("go", "install", pkg)
+		return "", runCmd("go", "install", pkg)
 
 	case "pip":
 		pip := "pip3"
 		if _, err := exec.LookPath(pip); err != nil {
 			pip = "pip"
 		}
-		return runCmd(pip, "install", "--user", inst.Package)
+		return "", runCmd(pip, "install", "--user", inst.Package)
 
 	case "pipx":
-		return runCmd("pipx", "install", inst.Package)
+		return "", runCmd("pipx", "install", inst.Package)
 
 	case "npm":
-		return runCmd("npm", "install", "-g", inst.Package)
+		return "", runCmd("npm", "install", "-g", inst.Package)
 
 	case "github":
 		return installGitHub(tool, inst, binDir)
@@ -243,9 +259,9 @@ func installTool(tool config.Tool, inst config.ToolInstall, plat, binDir string)
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
 		if err := cmd.Run(); err != nil {
-			return errs.NewTool(fmt.Sprintf("script install failed for %s", tool.Name), err.Error())
+			return "", errs.NewTool(fmt.Sprintf("script install failed for %s", tool.Name), err.Error())
 		}
-		return nil
+		return "", nil
 
 	case "manual":
 		note := inst.Note
@@ -253,10 +269,10 @@ func installTool(tool config.Tool, inst config.ToolInstall, plat, binDir string)
 			note = "see documentation"
 		}
 		fmt.Printf("  Manual install: %s\n", note)
-		return nil
+		return "", nil
 
 	default:
-		return errs.NewTool(
+		return "", errs.NewTool(
 			fmt.Sprintf("unknown install method: %s", inst.Method),
 			"Supported: pkg, apt, brew, cargo, go, pip, pipx, npm, github, script, manual",
 		)
@@ -278,16 +294,13 @@ func runCmd(name string, args ...string) error {
 
 // ── GitHub release install ────────────────────────────────────────────────────
 
-func installGitHub(tool config.Tool, inst config.ToolInstall, binDir string) error {
-	var release *ghrelease.Release
-	var err error
-	if inst.Version != "" {
-		release, err = ghrelease.GetReleaseByTag(inst.Repo, inst.Version)
-	} else {
-		release, err = ghrelease.GetLatestRelease(inst.Repo)
-	}
+// installGitHub installs a tool from a GitHub release and returns the version
+// (release tag without a leading "v") that was installed, so the caller can
+// record it in the lockfile.
+func installGitHub(tool config.Tool, inst config.ToolInstall, binDir string) (string, error) {
+	release, err := resolveRelease(inst)
 	if err != nil {
-		return err
+		return "", err
 	}
 
 	version := strings.TrimPrefix(release.TagName, "v")
@@ -331,25 +344,25 @@ func installGitHub(tool config.Tool, inst config.ToolInstall, binDir string) err
 		if len(names) > 10 {
 			avail = strings.Join(names[:10], ", ") + ", ..."
 		}
-		return errs.NewTool(
+		return "", errs.NewTool(
 			fmt.Sprintf("no matching asset for %s in %s@%s", tool.Name, inst.Repo, release.TagName),
 			fmt.Sprintf("Pattern: %s\nAvailable: %s", assetPattern, avail),
 		)
 	}
 
 	if err := os.MkdirAll(binDir, 0o755); err != nil {
-		return errs.NewTool(fmt.Sprintf("cannot create bin dir %s", binDir), err.Error())
+		return "", errs.NewTool(fmt.Sprintf("cannot create bin dir %s", binDir), err.Error())
 	}
 
 	tmpDir, err := os.MkdirTemp("", "dots-install-*")
 	if err != nil {
-		return errs.NewTool("cannot create temp directory", err.Error())
+		return "", errs.NewTool("cannot create temp directory", err.Error())
 	}
 	defer os.RemoveAll(tmpDir)
 
 	downloadPath := filepath.Join(tmpDir, matched.Name)
 	if err := ghrelease.DownloadAsset(matched.BrowserDownloadURL, downloadPath); err != nil {
-		return err
+		return "", err
 	}
 
 	binaryName := inst.Binary
@@ -361,11 +374,34 @@ func installGitHub(tool config.Tool, inst config.ToolInstall, binDir string) err
 	if isExtractableArchive(matched.Name) {
 		extractDir := filepath.Join(tmpDir, "extracted")
 		if err := extractArchive(downloadPath, extractDir); err != nil {
-			return err
+			return "", err
 		}
-		return findAndInstallBinary(extractDir, binaryName, dest, inst.BinaryPath)
+		if err := findAndInstallBinary(extractDir, binaryName, dest, inst.BinaryPath); err != nil {
+			return "", err
+		}
+		return version, nil
 	}
-	return installBinaryFile(downloadPath, dest)
+	if err := installBinaryFile(downloadPath, dest); err != nil {
+		return "", err
+	}
+	return version, nil
+}
+
+// resolveRelease fetches the release a github install method targets: the
+// pinned tag when Version is set to a concrete value, otherwise the latest
+// release. The sentinel "latest" (and an empty Version) both mean "track the
+// newest release".
+func resolveRelease(inst config.ToolInstall) (*ghrelease.Release, error) {
+	if isLatest(inst.Version) {
+		return ghrelease.GetLatestRelease(inst.Repo)
+	}
+	return ghrelease.GetReleaseByTag(inst.Repo, inst.Version)
+}
+
+// isLatest reports whether a configured version means "track the newest
+// release": empty or the literal "latest" (case-insensitive).
+func isLatest(version string) bool {
+	return version == "" || strings.EqualFold(version, "latest")
 }
 
 // ── Archive extraction ────────────────────────────────────────────────────────

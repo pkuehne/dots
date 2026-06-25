@@ -526,7 +526,7 @@ func TestInstallGitHub_TarGz(t *testing.T) {
 		Binary: "lazygit",
 	}
 	binDir := t.TempDir()
-	if err := installGitHub(tool, inst, binDir); err != nil {
+	if _, err := installGitHub(tool, inst, binDir); err != nil {
 		t.Fatalf("installGitHub: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(binDir, "lazygit")); err != nil {
@@ -554,7 +554,7 @@ func TestInstallGitHub_ArchMap(t *testing.T) {
 	// The asset pattern with arch_map applied to the current arch must match
 	// one of the test server's assets. We test that the expansion logic works
 	// by verifying the binary is installed (server serves arm64 asset).
-	if err := installGitHub(tool, inst, binDir); err != nil {
+	if _, err := installGitHub(tool, inst, binDir); err != nil {
 		// Only fail if the binary would have been reachable — if current arch
 		// maps to something the test server doesn't serve, that's expected.
 		if !strings.Contains(err.Error(), "no matching asset") {
@@ -575,7 +575,7 @@ func TestInstallGitHub_NoMatchingAsset(t *testing.T) {
 		Asset:  "tool_{version}_linux_amd64.tar.gz",
 	}
 	binDir := t.TempDir()
-	err := installGitHub(tool, inst, binDir)
+	_, err := installGitHub(tool, inst, binDir)
 	if err == nil {
 		t.Fatal("expected error when no asset matches")
 	}
@@ -595,7 +595,7 @@ func TestInstallGitHub_RateLimitError(t *testing.T) {
 
 	tool := config.Tool{Name: "rg"}
 	inst := config.ToolInstall{Method: "github", Repo: "BurntSushi/ripgrep"}
-	err := installGitHub(tool, inst, t.TempDir())
+	_, err := installGitHub(tool, inst, t.TempDir())
 	if err == nil {
 		t.Fatal("expected rate limit error")
 	}
@@ -634,7 +634,7 @@ func TestInstallGitHub_DownloadNotFound(t *testing.T) {
 		Asset:  "tool_{version}_linux_amd64.tar.gz",
 	}
 	binDir := t.TempDir()
-	err := installGitHub(tool, inst, binDir)
+	_, err := installGitHub(tool, inst, binDir)
 	if err == nil {
 		t.Fatal("expected error on 404 asset download")
 	}
@@ -660,7 +660,7 @@ func TestInstallGitHub_TarXz(t *testing.T) {
 		Binary: "lazygit",
 	}
 	binDir := t.TempDir()
-	if err := installGitHub(tool, inst, binDir); err != nil {
+	if _, err := installGitHub(tool, inst, binDir); err != nil {
 		t.Fatalf("installGitHub: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(binDir, "lazygit")); err != nil {
@@ -680,7 +680,7 @@ func TestInstallGitHub_CorruptArchive(t *testing.T) {
 		Asset:  "tool_{version}_linux_amd64.tar.gz",
 	}
 	binDir := t.TempDir()
-	err := installGitHub(tool, inst, binDir)
+	_, err := installGitHub(tool, inst, binDir)
 	if err == nil {
 		t.Fatal("expected error for corrupt archive")
 	}
@@ -717,7 +717,7 @@ func TestInstallGitHub_BinaryPath(t *testing.T) {
 		BinaryPath: "bin/cmake",
 	}
 	binDir := t.TempDir()
-	if err := installGitHub(tool, inst, binDir); err != nil {
+	if _, err := installGitHub(tool, inst, binDir); err != nil {
 		t.Fatalf("installGitHub: %v", err)
 	}
 	got, _ := os.ReadFile(filepath.Join(binDir, "cmake"))

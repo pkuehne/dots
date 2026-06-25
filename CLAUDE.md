@@ -53,8 +53,9 @@ internal/git/      Git config generation + WriteManaged/Uninit — implemented
 internal/ssh/      SSH config generation + WriteManaged/Uninit — implemented
 internal/secrets/  age encrypt/decrypt — implemented
 internal/presets/  Preset generation + Eject — implemented
-internal/repos/    Repo cloning + Update/Status — implemented
-internal/tools/    Check, Install, Filter + GitHub release download — implemented
+internal/repos/    Repo cloning + Update/Status (asserts ref) — implemented
+internal/tools/    Check, Install, Filter, VersionStatus, Update + GitHub release download — implemented
+internal/lockfile/ Records installed tool versions (~/.config/dots/installed.toml) — implemented
 internal/ghrelease/ Shared GitHub release client (resolve + download) — implemented
 internal/selfupdate/ Self-upgrade the dots binary (dots upgrade) — implemented
 ```
