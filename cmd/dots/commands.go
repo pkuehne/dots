@@ -258,24 +258,25 @@ func applyShell(cfg config.Config, dryRun bool) error {
 	if !cfg.Shell.Managed {
 		return nil
 	}
-	if err := shell.WriteSnippets(cfg, dryRun); err != nil {
+	sec := ui.NewSection("Shell")
+	if err := shell.WriteSnippets(cfg, dryRun, sec); err != nil {
 		return err
 	}
-	return shell.InsertSourceLine(cfg, dryRun)
+	return shell.InsertSourceLine(cfg, dryRun, sec)
 }
 
 func applyGit(cfg config.Config, dryRun bool) error {
 	if !cfg.Git.Managed {
 		return nil
 	}
-	return gogit.WriteManaged(cfg, dryRun)
+	return gogit.WriteManaged(cfg, dryRun, ui.NewSection("Git"))
 }
 
 func applySSH(cfg config.Config, dryRun bool) error {
 	if !cfg.SSH.Managed {
 		return nil
 	}
-	return gossh.WriteManaged(cfg, platform.Platforms(), dryRun)
+	return gossh.WriteManaged(cfg, platform.Platforms(), dryRun, ui.NewSection("SSH"))
 }
 
 func applyRepos(cfg config.Config, dryRun, summary bool) error {
@@ -287,10 +288,13 @@ func applyRepos(cfg config.Config, dryRun, summary bool) error {
 	return err
 }
 
-// printCloneResults renders one coloured status line per repo (unless summary)
-// followed by a tally, matching the file and tool output so apply lists every
-// repo — including ones already cloned — rather than only the ones it touched.
+// printCloneResults renders the Repos section: one coloured status row per repo
+// (unless summary) under a header, followed by a tally. Listing every repo —
+// including ones already cloned — keeps it consistent with the file and tool
+// sections rather than only reporting the ones it touched.
 func printCloneResults(results []repos.CloneResult, dryRun, summary bool) {
+	sec := ui.NewSection("Repos")
+	sec.Header()
 	cloned, present := 0, 0
 	for _, r := range results {
 		switch r.Action {
@@ -302,13 +306,13 @@ func printCloneResults(results []repos.CloneResult, dryRun, summary bool) {
 		if summary {
 			continue
 		}
-		printStatusLine(r.Action, r.Entry.Dst, dryRun)
+		sec.Status(r.Action, r.Entry.Dst, dryRun)
 	}
 	verb := "cloned"
 	if dryRun {
 		verb = "to clone"
 	}
-	fmt.Printf("\nRepos: %d %s, %d already present\n", cloned, verb, present)
+	sec.Summary(fmt.Sprintf("%d %s, %d present", cloned, verb, present))
 }
 
 func applyPresets(cfg config.Config, dryRun bool) error {
@@ -428,6 +432,8 @@ func applyTools(cfg config.Config, dryRun, summary bool) error {
 	active := tools.Filter(cfg.Tools, nil, "", platform.Platforms(), cfg.ActiveProfile)
 	results := tools.Check(active)
 	opts := tools.InstallOptions{DryRun: dryRun}
+	sec := ui.NewSection("Tools")
+	sec.Header()
 	installed, present, installErrors := 0, 0, 0
 	for _, r := range results {
 		// List every tool — already-present ones included — so apply reports the
@@ -435,7 +441,7 @@ func applyTools(cfg config.Config, dryRun, summary bool) error {
 		if r.Installed {
 			present++
 			if !summary {
-				printStatusLine("present", r.Tool.Name, dryRun)
+				sec.Status("present", r.Tool.Name, dryRun)
 			}
 			continue
 		}
@@ -446,7 +452,7 @@ func applyTools(cfg config.Config, dryRun, summary bool) error {
 		} else {
 			installed++
 			if !summary {
-				printStatusLine("installed", r.Tool.Name, dryRun)
+				sec.Status("installed", r.Tool.Name, dryRun)
 			}
 		}
 	}
@@ -454,11 +460,11 @@ func applyTools(cfg config.Config, dryRun, summary bool) error {
 	if dryRun {
 		verb = "to install"
 	}
-	fmt.Printf("\nTools: %d %s, %d already present", installed, verb, present)
+	tally := fmt.Sprintf("%d %s, %d present", installed, verb, present)
 	if installErrors > 0 {
-		fmt.Printf(", %d errors", installErrors)
+		tally += fmt.Sprintf(", %d errors", installErrors)
 	}
-	fmt.Println()
+	sec.Summary(tally)
 	if installErrors > 0 {
 		return errs.New(fmt.Sprintf("%d tool(s) failed to install", installErrors),
 			"Run 'dots tools check' for details.")
@@ -470,11 +476,12 @@ func applyLoginShell(cfg config.Config, dryRun bool) error {
 	if !cfg.Shell.Managed || !cfg.Shell.Login {
 		return nil
 	}
+	sec := ui.NewSection("Login shell")
 	zprofile := fileutil.Expand("~/.zprofile")
 	profile := fileutil.Expand("~/.profile")
 	if dryRun {
-		printStatusLine("wrote", zprofile, true)
-		printStatusLine("wrote", profile, true)
+		sec.Status("wrote", zprofile, true)
+		sec.Status("wrote", profile, true)
 		return nil
 	}
 	zAction, err := writeUserFile(zprofile, presets.GenerateZprofile(cfg))
@@ -485,12 +492,14 @@ func applyLoginShell(cfg config.Config, dryRun bool) error {
 	if err != nil {
 		return err
 	}
-	printStatusLine(zAction, zprofile, false)
-	printStatusLine(pAction, profile, false)
+	sec.Status(zAction, zprofile, false)
+	sec.Status(pAction, profile, false)
 	return nil
 }
 
 func printResults(results []deploy.Result, dryRun, summary bool) int {
+	sec := ui.NewSection("Files")
+	sec.Header()
 	counts := map[string]int{}
 	for _, r := range results {
 		if r.Err != nil {
@@ -510,24 +519,24 @@ func printResults(results []deploy.Result, dryRun, summary bool) int {
 		if summary {
 			continue
 		}
-		printStatusLine(r.Action, r.Entry.Dst, dryRun)
+		sec.Status(r.Action, r.Entry.Dst, dryRun)
 	}
-	fmt.Printf("\n%d linked, %d copied, %d unchanged, %d skipped",
+	tally := fmt.Sprintf("%d linked, %d copied, %d unchanged, %d skipped",
 		counts["linked"]+counts["link"],
 		counts["copied"]+counts["copy"],
 		counts["unchanged"],
 		counts["skipped"],
 	)
 	if n := counts["decrypted"] + counts["decrypt"]; n > 0 {
-		fmt.Printf(", %d decrypted", n)
+		tally += fmt.Sprintf(", %d decrypted", n)
 	}
 	if counts["missing"] > 0 {
-		fmt.Printf(", %d missing", counts["missing"])
+		tally += fmt.Sprintf(", %d missing", counts["missing"])
 	}
 	if counts["error"] > 0 {
-		fmt.Printf(", %d errors", counts["error"])
+		tally += fmt.Sprintf(", %d errors", counts["error"])
 	}
-	fmt.Println()
+	sec.Summary(tally)
 	return counts["error"]
 }
 
@@ -1386,7 +1395,7 @@ func newGitCmd() *cobra.Command {
 		Use:   "init",
 		Short: "Enable git managed mode",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return gogit.WriteManaged(globals.cfg, initDryRun)
+			return gogit.WriteManaged(globals.cfg, initDryRun, ui.NewSection("Git"))
 		},
 	}
 	initSub.Flags().BoolVarP(&initDryRun, "dry-run", "n", false, "print actions without executing")
@@ -1423,7 +1432,7 @@ func newSSHCmd() *cobra.Command {
 		Use:   "init",
 		Short: "Enable SSH managed mode",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return gossh.WriteManaged(globals.cfg, platform.Platforms(), initDryRun)
+			return gossh.WriteManaged(globals.cfg, platform.Platforms(), initDryRun, ui.NewSection("SSH"))
 		},
 	}
 	initSub.Flags().BoolVarP(&initDryRun, "dry-run", "n", false, "print actions without executing")

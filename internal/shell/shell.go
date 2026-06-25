@@ -234,7 +234,7 @@ var userSnippetPrefixRe = regexp.MustCompile(`^(\d+)`)
 // deployUserSnippets copies user snippet files from <repoRoot>/shell/ into
 // dir, warning when a numeric prefix falls outside the ranges reserved for
 // user snippets (030-049, 080-089, 090+; generated snippets own the rest).
-func deployUserSnippets(cfg config.Config, dir string, dryRun bool) error {
+func deployUserSnippets(cfg config.Config, dir string, dryRun bool, sec *ui.Section) error {
 	names, err := userSnippetFiles(cfg.RepoRoot)
 	if err != nil {
 		return err
@@ -255,22 +255,23 @@ func deployUserSnippets(cfg config.Config, dir string, dryRun bool) error {
 		if err != nil {
 			return err
 		}
-		if err := writeSnippet(filepath.Join(dir, name), content, dryRun); err != nil {
+		if err := writeSnippet(filepath.Join(dir, name), content, dryRun, sec); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-// writeSnippet writes one shell.d snippet idempotently and reports the write.
-// Unchanged snippets produce no write and no output.
-func writeSnippet(dst string, content []byte, dryRun bool) error {
+// writeSnippet writes one shell.d snippet idempotently and reports a changed
+// snippet as a row under sec. Unchanged snippets produce no write and no row,
+// so apply does not emit one line per untouched snippet.
+func writeSnippet(dst string, content []byte, dryRun bool, sec *ui.Section) error {
 	changed, err := fileutil.WriteIfChanged(dst, content, 0o644, dryRun)
 	if err != nil {
 		return err
 	}
 	if changed {
-		ui.StatusLine("wrote", dst, dryRun)
+		sec.Status("wrote", dst, dryRun)
 	}
 	return nil
 }
@@ -300,9 +301,10 @@ func toolSnippetFiles(tool config.Tool, platforms []string) map[string]string {
 
 // WriteSnippets writes all generated snippets to cfg.Shell.Dir and deploys
 // user snippets from <repoRoot>/shell/. User snippets are deployed first, so
-// a generated snippet wins if a user file shares its name.
-// With dryRun=true no files are written.
-func WriteSnippets(cfg config.Config, dryRun bool) error {
+// a generated snippet wins if a user file shares its name. Only changed
+// snippets print a row under sec, so an unchanged shell config stays quiet.
+// sec may be nil. With dryRun=true no files are written.
+func WriteSnippets(cfg config.Config, dryRun bool, sec *ui.Section) error {
 	dir := fileutil.Expand(cfg.Shell.Dir)
 
 	if !dryRun {
@@ -311,7 +313,7 @@ func WriteSnippets(cfg config.Config, dryRun bool) error {
 		}
 	}
 
-	if err := deployUserSnippets(cfg, dir, dryRun); err != nil {
+	if err := deployUserSnippets(cfg, dir, dryRun, sec); err != nil {
 		return err
 	}
 
@@ -337,7 +339,7 @@ func WriteSnippets(cfg config.Config, dryRun bool) error {
 	}
 	sort.Strings(names)
 	for _, name := range names {
-		if err := writeSnippet(filepath.Join(dir, name), []byte(snippets[name]), dryRun); err != nil {
+		if err := writeSnippet(filepath.Join(dir, name), []byte(snippets[name]), dryRun, sec); err != nil {
 			return err
 		}
 	}
@@ -345,8 +347,9 @@ func WriteSnippets(cfg config.Config, dryRun bool) error {
 }
 
 // InsertSourceLine inserts the marker-delimited bootstrapper block into the
-// zshrc and bashrc files listed in cfg.Shell.
-func InsertSourceLine(cfg config.Config, dryRun bool) error {
+// zshrc and bashrc files listed in cfg.Shell. Changed rc files print a row
+// under sec; sec may be nil.
+func InsertSourceLine(cfg config.Config, dryRun bool, sec *ui.Section) error {
 	for _, rc := range []string{cfg.Shell.Zshrc, cfg.Shell.Bashrc} {
 		path := fileutil.Expand(rc)
 		bootstrapper := zshBootstrapper
@@ -358,7 +361,7 @@ func InsertSourceLine(cfg config.Config, dryRun bool) error {
 			return err
 		}
 		if changed {
-			ui.StatusLine("wrote", "bootstrapper → "+path, dryRun)
+			sec.Status("wrote", "bootstrapper → "+path, dryRun)
 		}
 	}
 	return nil

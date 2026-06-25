@@ -11,6 +11,7 @@ import (
 	"github.com/pkuehne/dots/internal/config"
 	"github.com/pkuehne/dots/internal/fileutil"
 	"github.com/pkuehne/dots/internal/shell"
+	"github.com/pkuehne/dots/internal/ui"
 )
 
 // sshKeywordMap maps snake_case TOML keys to their SSH config keyword equivalents.
@@ -94,19 +95,16 @@ func GenerateConfig(cfg config.Config, platforms []string) string {
 
 // WriteManaged writes the SSH config fragment and inserts the Include line
 // into ~/.ssh/config. Both steps are idempotent and report what they changed
-// (or with dryRun would change); unchanged files produce no output.
-func WriteManaged(cfg config.Config, platforms []string, dryRun bool) error {
+// (or with dryRun would change) as rows under sec; unchanged files produce no
+// output. sec may be nil, in which case rows print without a section header.
+func WriteManaged(cfg config.Config, platforms []string, dryRun bool, sec *ui.Section) error {
 	outPath := fileutil.Expand("~/.config/dots/ssh/config")
 	changed, err := fileutil.WriteIfChanged(outPath, []byte(GenerateConfig(cfg, platforms)), 0o600, dryRun)
 	if err != nil {
 		return err
 	}
 	if changed {
-		verb := "wrote"
-		if dryRun {
-			verb = "would write"
-		}
-		fmt.Printf("  %s %s\n", verb, outPath)
+		sec.Status("wrote", outPath, dryRun)
 	}
 
 	sshDir := fileutil.Expand("~/.ssh")
@@ -122,11 +120,7 @@ func WriteManaged(cfg config.Config, platforms []string, dryRun bool) error {
 		return err
 	}
 	if inserted {
-		verb := "added"
-		if dryRun {
-			verb = "would add"
-		}
-		fmt.Printf("  %s Include to %s\n", verb, sshConfig)
+		sec.Status("updated", "Include → "+sshConfig, dryRun)
 	}
 	return nil
 }
