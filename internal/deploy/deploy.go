@@ -410,6 +410,7 @@ func applySecret(entry config.FileEntry, src, dst string, opts Options, task ui.
 	if err := applyEntryMode(dst, entry.Mode); err != nil {
 		return Result{Entry: entry, Err: err}
 	}
+	task.Advance(1)
 	return Result{Entry: entry, Action: "decrypted"}
 }
 

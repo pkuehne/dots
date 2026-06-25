@@ -181,7 +181,16 @@ func (t *barTask) Write(p []byte) (int, error) {
 	return len(p), nil
 }
 
-func (t *barTask) Advance(n int64) { t.bar.IncrBy(int(n)) }
+func (t *barTask) Advance(n int64) {
+	const maxInt = int(^uint(0) >> 1) // platform int max (clamp for 32-bit)
+	if n <= 0 {
+		return
+	}
+	if n > int64(maxInt) {
+		n = int64(maxInt)
+	}
+	t.bar.IncrBy(int(n))
+}
 
 func (t *barTask) Done(detail string) {
 	t.mu.Lock()

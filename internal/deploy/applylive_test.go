@@ -78,7 +78,8 @@ func TestApplyAllLive_DryRunNoSideEffects(t *testing.T) {
 }
 
 // TestApplyAllLive_StagesReported confirms a real deploy drives the task through
-// its stages and completes, while a no-op (unchanged) reports no stages.
+// its stages and completes. (An unchanged entry is only discovered mid-execute,
+// so it still reports the initial "checking" stage — it is not a no-stage no-op.)
 func TestApplyAllLive_StagesReported(t *testing.T) {
 	_, opts := makeRepo(t, map[string]string{"files/a": "aaa"})
 	entries := []config.FileEntry{entry("files/a", filepath.Join(opts.HomeDir, "a"))}
