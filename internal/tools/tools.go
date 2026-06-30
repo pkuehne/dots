@@ -438,6 +438,12 @@ func installGitHub(tool config.Tool, inst config.ToolInstall, binDir string, tas
 
 	task.Stage("installing")
 	if isExtractableArchive(matched.Name) {
+		if inst.InstallDir != "" {
+			if err := installArchiveTree(downloadPath, inst, binaryName, dest); err != nil {
+				return "", err
+			}
+			return version, nil
+		}
 		extractDir := filepath.Join(tmpDir, "extracted")
 		if err := extractArchive(downloadPath, extractDir); err != nil {
 			return "", err
@@ -447,10 +453,50 @@ func installGitHub(tool config.Tool, inst config.ToolInstall, binDir string, tas
 		}
 		return version, nil
 	}
+	if inst.InstallDir != "" {
+		return "", errs.NewTool(
+			fmt.Sprintf("install_dir is set for %s but asset %q is not an archive", inst.Repo, matched.Name),
+			"Remove 'install_dir', or select an archive asset (.tar.gz, .tar.xz, .tar.bz2, .tar.zst, .zip).",
+		)
+	}
 	if err := installBinaryFile(downloadPath, dest); err != nil {
 		return "", err
 	}
 	return version, nil
+}
+
+// installArchiveTree extracts the whole archive into inst.InstallDir (replacing
+// any prior contents so stale runtime files never linger) and symlinks dest to
+// the binary inside it. This keeps a binary together with the sibling files it
+// needs at runtime, unlike the binary-only install path.
+func installArchiveTree(archivePath string, inst config.ToolInstall, binaryName, dest string) error {
+	installDir := fileutil.Expand(inst.InstallDir)
+	// Replace the prior tree wholesale: a partial overlay would leave behind
+	// files removed in the new release (the staleness bug this path fixes).
+	if err := os.RemoveAll(installDir); err != nil {
+		return errs.NewTool(fmt.Sprintf("cannot clear install dir %s", installDir), err.Error())
+	}
+	if err := extractArchiveStrip(archivePath, installDir, inst.StripComponents); err != nil {
+		return err
+	}
+	src, err := locateBinary(installDir, binaryName, inst.BinaryPath)
+	if err != nil {
+		return err
+	}
+	return symlinkBinary(src, dest)
+}
+
+// symlinkBinary points dest at src, replacing any existing file or symlink so
+// the operation is idempotent.
+func symlinkBinary(src, dest string) error {
+	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
+		return errs.NewTool(fmt.Sprintf("cannot create bin dir %s", filepath.Dir(dest)), err.Error())
+	}
+	_ = os.Remove(dest)
+	if err := os.Symlink(src, dest); err != nil {
+		return errs.NewTool(fmt.Sprintf("cannot symlink %s -> %s", dest, src), err.Error())
+	}
+	return nil
 }
 
 // resolveRelease fetches the release a github install method targets: the
@@ -524,12 +570,30 @@ func sanitizeArchivePath(dest, name string) (string, error) {
 	return memberPath, nil
 }
 
+// stripComponents drops the first n slash-separated components from an archive
+// entry name, mirroring tar --strip-components. It returns "" when the entry has
+// n or fewer components (nothing remains after stripping).
+func stripComponents(name string, n int) string {
+	parts := strings.Split(strings.Trim(name, "/"), "/")
+	if len(parts) <= n {
+		return ""
+	}
+	return strings.Join(parts[n:], "/")
+}
+
 // extractArchive extracts the archive at archivePath into dest using the
 // mholt/archives library, which handles tar.gz, tar.bz2, tar.xz, tar.zst, tar
 // and zip uniformly. Directories, regular files and symlinks are materialised;
 // every entry's path is checked to stay within dest, and symlinks are rejected
 // if their target escapes dest.
 func extractArchive(archivePath, dest string) error {
+	return extractArchiveStrip(archivePath, dest, 0)
+}
+
+// extractArchiveStrip is extractArchive with a tar --strip-components style
+// prefix removal: strip leading path components are dropped from every entry,
+// and entries shallower than strip are skipped. strip == 0 extracts verbatim.
+func extractArchiveStrip(archivePath, dest string, strip int) error {
 	f, err := os.Open(archivePath)
 	if err != nil {
 		return errs.NewTool(fmt.Sprintf("cannot open archive %s", archivePath), err.Error())
@@ -554,7 +618,16 @@ func extractArchive(archivePath, dest string) error {
 	}
 
 	handler := func(ctx context.Context, info archives.FileInfo) error {
-		memberPath, err := sanitizeArchivePath(dest, info.NameInArchive)
+		name := info.NameInArchive
+		if strip > 0 {
+			name = stripComponents(name, strip)
+			if name == "" {
+				// Entry lies at or above the strip depth; it has no place in
+				// the stripped tree, so skip it.
+				return nil
+			}
+		}
+		memberPath, err := sanitizeArchivePath(dest, name)
 		if err != nil {
 			return err
 		}
@@ -647,21 +720,32 @@ func extractRegularFile(memberPath string, info archives.FileInfo) error {
 // When binaryPath is set it is used as an exact relative path inside extractDir.
 // Otherwise the shallowest file matching binaryName is chosen.
 func findAndInstallBinary(extractDir, binaryName, dest, binaryPath string) error {
+	src, err := locateBinary(extractDir, binaryName, binaryPath)
+	if err != nil {
+		return err
+	}
+	return installBinaryFile(src, dest)
+}
+
+// locateBinary returns the path of a binary inside root. When binaryPath is set
+// it is an exact relative path inside root; otherwise the shallowest file whose
+// base name equals binaryName is chosen.
+func locateBinary(root, binaryName, binaryPath string) (string, error) {
 	if binaryPath != "" {
-		src := filepath.Join(extractDir, filepath.FromSlash(binaryPath))
+		src := filepath.Join(root, filepath.FromSlash(binaryPath))
 		info, err := os.Stat(src)
 		if err != nil || !info.Mode().IsRegular() {
-			return errs.NewTool(
+			return "", errs.NewTool(
 				fmt.Sprintf("binary_path %q not found in archive", binaryPath),
 				"Check the 'binary_path' field in the install method.",
 			)
 		}
-		return installBinaryFile(src, dest)
+		return src, nil
 	}
 
 	// Walk and collect all files whose base name equals binaryName.
 	var candidates []string
-	_ = filepath.WalkDir(extractDir, func(path string, d os.DirEntry, err error) error {
+	_ = filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
 		if err == nil && !d.IsDir() && d.Name() == binaryName {
 			candidates = append(candidates, path)
 		}
@@ -669,7 +753,7 @@ func findAndInstallBinary(extractDir, binaryName, dest, binaryPath string) error
 	})
 
 	if len(candidates) == 0 {
-		return errs.NewTool(
+		return "", errs.NewTool(
 			fmt.Sprintf("binary %q not found in archive", binaryName),
 			"Check the 'binary' field in the install method.",
 		)
@@ -682,7 +766,7 @@ func findAndInstallBinary(extractDir, binaryName, dest, binaryPath string) error
 			best = c
 		}
 	}
-	return installBinaryFile(best, dest)
+	return best, nil
 }
 
 func installBinaryFile(src, dest string) error {

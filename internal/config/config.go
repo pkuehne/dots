@@ -76,17 +76,28 @@ type ToolGit struct {
 
 // ToolInstall holds one [[tool.install]] entry.
 type ToolInstall struct {
-	Method     string            `toml:"method"`
-	Package    string            `toml:"package"`
-	Repo       string            `toml:"repo"`
-	Asset      string            `toml:"asset"`
-	Binary     string            `toml:"binary"`
-	BinaryPath string            `toml:"binary_path"`
-	Version    string            `toml:"version"`
-	Script     string            `toml:"script"`
-	Note       string            `toml:"note"`
-	Only       []string          `toml:"only"`
-	ArchMap    map[string]string `toml:"arch_map"`
+	Method     string `toml:"method"`
+	Package    string `toml:"package"`
+	Repo       string `toml:"repo"`
+	Asset      string `toml:"asset"`
+	Binary     string `toml:"binary"`
+	BinaryPath string `toml:"binary_path"`
+	// InstallDir, when set on a github method whose asset is an archive, makes
+	// dots extract the whole archive tree into this directory (replacing any
+	// prior contents) and symlink {bin_dir}/{binary} to the binary inside it.
+	// This keeps a binary together with sibling runtime files it depends on
+	// (e.g. Neovim's share/nvim/runtime). Empty means "install just the binary".
+	InstallDir string `toml:"install_dir"`
+	// StripComponents drops this many leading path components from every archive
+	// entry when extracting into InstallDir, mirroring tar --strip-components.
+	// Most release tarballs nest everything under a single top-level directory,
+	// so 1 is the common value. Ignored unless InstallDir is set.
+	StripComponents int               `toml:"strip_components"`
+	Version         string            `toml:"version"`
+	Script          string            `toml:"script"`
+	Note            string            `toml:"note"`
+	Only            []string          `toml:"only"`
+	ArchMap         map[string]string `toml:"arch_map"`
 }
 
 // Tool holds one [[tool]] entry.

@@ -247,17 +247,19 @@ func parseSSHHosts(raw map[string]any) []SSHHost {
 
 func parseToolInstall(raw map[string]any) ToolInstall {
 	return ToolInstall{
-		Method:     str(raw, "method", ""),
-		Package:    str(raw, "package", ""),
-		Repo:       str(raw, "repo", ""),
-		Asset:      str(raw, "asset", ""),
-		Binary:     str(raw, "binary", ""),
-		BinaryPath: str(raw, "binary_path", ""),
-		Version:    str(raw, "version", ""),
-		Script:     str(raw, "script", ""),
-		Note:       str(raw, "note", ""),
-		Only:       strSlice(raw, "only"),
-		ArchMap:    strMap(raw, "arch_map"),
+		Method:          str(raw, "method", ""),
+		Package:         str(raw, "package", ""),
+		Repo:            str(raw, "repo", ""),
+		Asset:           str(raw, "asset", ""),
+		Binary:          str(raw, "binary", ""),
+		BinaryPath:      str(raw, "binary_path", ""),
+		InstallDir:      str(raw, "install_dir", ""),
+		StripComponents: int(intVal(raw, "strip_components", 0)),
+		Version:         str(raw, "version", ""),
+		Script:          str(raw, "script", ""),
+		Note:            str(raw, "note", ""),
+		Only:            strSlice(raw, "only"),
+		ArchMap:         strMap(raw, "arch_map"),
 	}
 }
 

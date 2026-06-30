@@ -69,6 +69,37 @@ When the matched asset is an archive, dots extracts it and locates the binary
 installed verbatim. Path-traversal and out-of-archive symlink entries are
 rejected as a safety measure.
 
+### Installing a full archive tree with `install_dir`
+
+Some tools ship as a complete directory tree (`bin/`, `lib/`, `share/`) where the
+binary depends on its sibling files at runtime — Neovim, Zig, and Go are typical.
+Copying only the binary into `bin_dir` leaves those runtime files behind (or
+stale from a previous install), causing version mismatches.
+
+Set `install_dir` to extract the **whole** archive tree into a directory and
+symlink the binary from `bin_dir` into it. On every install dots replaces
+`install_dir` wholesale, so stale files from a prior release never linger.
+
+```toml
+[[tool]]
+name = "neovim"
+check = "nvim --version"
+
+[[tool.install]]
+method = "github"
+repo = "neovim/neovim"
+asset = "nvim-linux-x86_64.tar.gz"
+binary = "nvim"
+install_dir = "~/.local/nvim"
+strip_components = 1   # drop the leading nvim-linux-x86_64/ directory
+```
+
+This extracts the archive into `~/.local/nvim` (with one leading path component
+stripped, mirroring `tar --strip-components`) and symlinks
+`{bin_dir}/nvim → ~/.local/nvim/bin/nvim`. The binary is located inside
+`install_dir` by `binary` (shallowest match) or an exact `binary_path` relative
+to `install_dir`. `install_dir` requires an archive asset.
+
 ## Asset Pattern Tokens
 
 | Token | Values |
