@@ -470,7 +470,10 @@ func installGitHub(tool config.Tool, inst config.ToolInstall, binDir string, tas
 // the binary inside it. This keeps a binary together with the sibling files it
 // needs at runtime, unlike the binary-only install path.
 func installArchiveTree(archivePath string, inst config.ToolInstall, binaryName, dest string) error {
-	installDir := fileutil.Expand(inst.InstallDir)
+	installDir, err := safeInstallDir(inst.InstallDir, filepath.Dir(dest))
+	if err != nil {
+		return err
+	}
 	// Replace the prior tree wholesale: a partial overlay would leave behind
 	// files removed in the new release (the staleness bug this path fixes).
 	if err := os.RemoveAll(installDir); err != nil {
@@ -486,13 +489,51 @@ func installArchiveTree(archivePath string, inst config.ToolInstall, binaryName,
 	return symlinkBinary(src, dest)
 }
 
+// safeInstallDir expands and validates a configured install_dir before it is
+// wiped and replaced. Because installArchiveTree removes the directory wholesale,
+// a careless value ("~", "/", or any dir containing bin_dir) would delete large
+// parts of the user's home or system. It returns a cleaned, absolute path and
+// rejects the dangerous cases. binDir is the directory the binary symlink lives
+// in (so install_dir is not allowed to contain or equal it).
+func safeInstallDir(configured, binDir string) (string, error) {
+	installDir := fileutil.Expand(configured)
+	if installDir == "" {
+		return "", errs.NewTool("install_dir expands to an empty path", "Set 'install_dir' to a valid directory path.")
+	}
+	abs, err := filepath.Abs(installDir)
+	if err != nil {
+		return "", errs.NewTool(fmt.Sprintf("cannot resolve install_dir %q", installDir), err.Error())
+	}
+	installDir = filepath.Clean(abs)
+
+	if installDir == string(os.PathSeparator) {
+		return "", errs.NewTool("refusing to use install_dir set to the filesystem root", "Set 'install_dir' to a dedicated directory (e.g. ~/.local/<tool>).")
+	}
+	if home, err := os.UserHomeDir(); err == nil && installDir == filepath.Clean(home) {
+		return "", errs.NewTool("refusing to use install_dir set to the home directory", "Set 'install_dir' to a dedicated subdirectory (e.g. ~/.local/<tool>).")
+	}
+	binDirAbs := binDir
+	if a, err := filepath.Abs(binDir); err == nil {
+		binDirAbs = a
+	}
+	if containedIn(installDir, filepath.Clean(binDirAbs)) {
+		return "", errs.NewTool(
+			fmt.Sprintf("refusing to use install_dir %s because it contains bin_dir %s", installDir, filepath.Clean(binDirAbs)),
+			"Choose an 'install_dir' that does not contain (or equal) 'bin_dir'.",
+		)
+	}
+	return installDir, nil
+}
+
 // symlinkBinary points dest at src, replacing any existing file or symlink so
 // the operation is idempotent.
 func symlinkBinary(src, dest string) error {
 	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
 		return errs.NewTool(fmt.Sprintf("cannot create bin dir %s", filepath.Dir(dest)), err.Error())
 	}
-	_ = os.Remove(dest)
+	if err := os.Remove(dest); err != nil && !os.IsNotExist(err) {
+		return errs.NewTool(fmt.Sprintf("cannot replace existing %s", dest), err.Error())
+	}
 	if err := os.Symlink(src, dest); err != nil {
 		return errs.NewTool(fmt.Sprintf("cannot symlink %s -> %s", dest, src), err.Error())
 	}
@@ -574,7 +615,11 @@ func sanitizeArchivePath(dest, name string) (string, error) {
 // entry name, mirroring tar --strip-components. It returns "" when the entry has
 // n or fewer components (nothing remains after stripping).
 func stripComponents(name string, n int) string {
-	parts := strings.Split(strings.Trim(name, "/"), "/")
+	trimmed := strings.Trim(name, "/")
+	if n <= 0 {
+		return trimmed
+	}
+	parts := strings.Split(trimmed, "/")
 	if len(parts) <= n {
 		return ""
 	}

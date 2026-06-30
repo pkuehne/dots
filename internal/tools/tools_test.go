@@ -746,6 +746,7 @@ func TestStripComponents(t *testing.T) {
 		{"top/file", 2, ""}, // fewer than n components
 		{"/leading/slash/x", 1, "slash/x"},
 		{"plain", 0, "plain"},
+		{"a/b/c", -1, "a/b/c"}, // negative n must not panic
 	}
 	for _, tc := range cases {
 		if got := stripComponents(tc.name, tc.n); got != tc.want {
@@ -869,6 +870,37 @@ func TestInstallGitHub_InstallDirNonArchiveRejected(t *testing.T) {
 	if !strings.Contains(err.Error(), "not an archive") {
 		t.Errorf("unexpected error: %v", err)
 	}
+}
+
+func TestSafeInstallDir(t *testing.T) {
+	home, _ := os.UserHomeDir()
+	binDir := filepath.Join(home, ".local", "bin")
+
+	t.Run("rejects root", func(t *testing.T) {
+		if _, err := safeInstallDir("/", binDir); err == nil {
+			t.Error("expected error for filesystem root")
+		}
+	})
+	t.Run("rejects home", func(t *testing.T) {
+		if _, err := safeInstallDir("~", binDir); err == nil {
+			t.Error("expected error for home directory")
+		}
+	})
+	t.Run("rejects dir containing bin_dir", func(t *testing.T) {
+		// ~/.local contains ~/.local/bin, so wiping it would destroy bin_dir.
+		if _, err := safeInstallDir("~/.local", binDir); err == nil {
+			t.Error("expected error for install_dir containing bin_dir")
+		}
+	})
+	t.Run("accepts dedicated subdir and returns absolute path", func(t *testing.T) {
+		got, err := safeInstallDir("~/.local/nvim", binDir)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if want := filepath.Join(home, ".local", "nvim"); got != want {
+			t.Errorf("got %q, want %q", got, want)
+		}
+	})
 }
 
 // ── Check ─────────────────────────────────────────────────────────────────────
