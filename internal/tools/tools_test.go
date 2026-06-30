@@ -442,6 +442,31 @@ func TestFindAndInstallBinary_BinaryPathMissing(t *testing.T) {
 	}
 }
 
+func TestFindAndInstallBinary_BinaryPathEscapesRoot(t *testing.T) {
+	// A secret file sitting outside the extracted tree must not be reachable
+	// through a "../" binary_path.
+	outside := t.TempDir()
+	secret := filepath.Join(outside, "secret")
+	if err := os.WriteFile(secret, []byte("x"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	root := filepath.Join(outside, "extracted")
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	dest := filepath.Join(t.TempDir(), "out")
+	err := findAndInstallBinary(root, "secret", dest, "../secret")
+	if err == nil {
+		t.Fatal("expected error for binary_path escaping the archive root")
+	}
+	if !strings.Contains(err.Error(), "escapes the archive root") {
+		t.Errorf("unexpected error: %v", err)
+	}
+	if _, statErr := os.Stat(dest); !os.IsNotExist(statErr) {
+		t.Error("nothing should have been installed for an escaping binary_path")
+	}
+}
+
 func TestFindAndInstallBinary_ShallowWins(t *testing.T) {
 	dir := t.TempDir()
 	shallow := filepath.Join(dir, "bin", "cmake")
@@ -849,6 +874,45 @@ func TestInstallGitHub_InstallDirReplacesStaleFiles(t *testing.T) {
 	}
 	if _, err := os.Stat(stale); !os.IsNotExist(err) {
 		t.Errorf("stale file should have been removed when install_dir was replaced")
+	}
+}
+
+func TestInstallGitHub_InstallDirFailureKeepsPriorInstall(t *testing.T) {
+	installDir := filepath.Join(t.TempDir(), "nvim")
+	binDir := t.TempDir()
+	// A working prior install that must survive a failed re-install.
+	prior := filepath.Join(installDir, "bin", "nvim")
+	if err := os.MkdirAll(filepath.Dir(prior), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(prior, []byte("old binary"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	// New archive is missing the binary, so the install must fail after staging.
+	data := makeTarGz(t, []struct{ name, content string }{
+		{"nvim-linux-x86_64/share/doc", "docs only"},
+	}, nil)
+	newGitHubTestServer(t, "nvim-linux-x86_64.tar.gz", data)
+
+	tool := config.Tool{Name: "neovim"}
+	inst := config.ToolInstall{
+		Method:          "github",
+		Repo:            "neovim/neovim",
+		Asset:           "nvim-linux-x86_64.tar.gz",
+		Binary:          "nvim",
+		InstallDir:      installDir,
+		StripComponents: 1,
+	}
+	if _, err := installGitHub(tool, inst, binDir, noTask); err == nil {
+		t.Fatal("expected install to fail when archive lacks the binary")
+	}
+	// Prior install untouched; no staging dir left behind.
+	if got, _ := os.ReadFile(prior); string(got) != "old binary" {
+		t.Errorf("prior install should be intact, got %q", got)
+	}
+	if _, err := os.Stat(installDir + ".dots-new"); !os.IsNotExist(err) {
+		t.Error("staging dir should have been cleaned up on failure")
 	}
 }
 

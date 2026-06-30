@@ -469,19 +469,41 @@ func installGitHub(tool config.Tool, inst config.ToolInstall, binDir string, tas
 // any prior contents so stale runtime files never linger) and symlinks dest to
 // the binary inside it. This keeps a binary together with the sibling files it
 // needs at runtime, unlike the binary-only install path.
+//
+// The new tree is staged in a sibling directory and only swapped into place once
+// extraction succeeds and the binary is located, so a failed download or
+// extraction leaves any previous install untouched.
 func installArchiveTree(archivePath string, inst config.ToolInstall, binaryName, dest string) error {
 	installDir, err := safeInstallDir(inst.InstallDir, filepath.Dir(dest))
 	if err != nil {
 		return err
 	}
-	// Replace the prior tree wholesale: a partial overlay would leave behind
-	// files removed in the new release (the staleness bug this path fixes).
-	if err := os.RemoveAll(installDir); err != nil {
-		return errs.NewTool(fmt.Sprintf("cannot clear install dir %s", installDir), err.Error())
+
+	// Stage beside installDir (same parent, so the final rename is atomic and on
+	// one filesystem). Clear any leftover staging dir from a prior failed run.
+	staging := installDir + ".dots-new"
+	if err := os.RemoveAll(staging); err != nil {
+		return errs.NewTool(fmt.Sprintf("cannot clear staging dir %s", staging), err.Error())
 	}
-	if err := extractArchiveStrip(archivePath, installDir, inst.StripComponents); err != nil {
+	if err := extractArchiveStrip(archivePath, staging, inst.StripComponents); err != nil {
+		os.RemoveAll(staging)
 		return err
 	}
+	if _, err := locateBinary(staging, binaryName, inst.BinaryPath); err != nil {
+		os.RemoveAll(staging)
+		return err
+	}
+
+	// The staged tree is good: replace the prior install wholesale (a partial
+	// overlay would leave behind files removed in the new release).
+	if err := os.RemoveAll(installDir); err != nil {
+		os.RemoveAll(staging)
+		return errs.NewTool(fmt.Sprintf("cannot clear install dir %s", installDir), err.Error())
+	}
+	if err := os.Rename(staging, installDir); err != nil {
+		return errs.NewTool(fmt.Sprintf("cannot move staged tree into %s", installDir), err.Error())
+	}
+
 	src, err := locateBinary(installDir, binaryName, inst.BinaryPath)
 	if err != nil {
 		return err
@@ -778,6 +800,15 @@ func findAndInstallBinary(extractDir, binaryName, dest, binaryPath string) error
 func locateBinary(root, binaryName, binaryPath string) (string, error) {
 	if binaryPath != "" {
 		src := filepath.Join(root, filepath.FromSlash(binaryPath))
+		// binary_path is a relative path inside the archive; reject an absolute
+		// path or one that escapes root via "..", so we never stat/install a
+		// file outside the extracted tree.
+		if filepath.IsAbs(binaryPath) || !containedIn(root, src) {
+			return "", errs.NewTool(
+				fmt.Sprintf("binary_path %q escapes the archive root", binaryPath),
+				"Set 'binary_path' to a relative path inside the archive.",
+			)
+		}
 		info, err := os.Stat(src)
 		if err != nil || !info.Mode().IsRegular() {
 			return "", errs.NewTool(
