@@ -87,17 +87,12 @@ type ToolInstall struct {
 	// prior contents) and symlink {bin_dir}/{binary} to the binary inside it.
 	// This keeps a binary together with sibling runtime files it depends on
 	// (e.g. Neovim's share/nvim/runtime). Empty means "install just the binary".
-	InstallDir string `toml:"install_dir"`
-	// StripComponents drops this many leading path components from every archive
-	// entry when extracting into InstallDir, mirroring tar --strip-components.
-	// Most release tarballs nest everything under a single top-level directory,
-	// so 1 is the common value. Ignored unless InstallDir is set.
-	StripComponents int               `toml:"strip_components"`
-	Version         string            `toml:"version"`
-	Script          string            `toml:"script"`
-	Note            string            `toml:"note"`
-	Only            []string          `toml:"only"`
-	ArchMap         map[string]string `toml:"arch_map"`
+	InstallDir string            `toml:"install_dir"`
+	Version    string            `toml:"version"`
+	Script     string            `toml:"script"`
+	Note       string            `toml:"note"`
+	Only       []string          `toml:"only"`
+	ArchMap    map[string]string `toml:"arch_map"`
 }
 
 // Tool holds one [[tool]] entry.

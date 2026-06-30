@@ -757,48 +757,6 @@ func TestInstallGitHub_BinaryPath(t *testing.T) {
 
 // ── install_dir (full archive tree) ───────────────────────────────────────────
 
-func TestStripComponents(t *testing.T) {
-	cases := []struct {
-		name string
-		n    int
-		want string
-	}{
-		{"nvim-linux-x86_64/bin/nvim", 1, "bin/nvim"},
-		{"nvim-linux-x86_64/share/nvim/runtime/x", 1, "share/nvim/runtime/x"},
-		{"top/sub/file", 2, "file"},
-		{"top/file", 1, "file"},
-		{"top", 1, ""},      // exactly at depth: nothing remains
-		{"top/file", 2, ""}, // fewer than n components
-		{"/leading/slash/x", 1, "slash/x"},
-		{"plain", 0, "plain"},
-		{"a/b/c", -1, "a/b/c"}, // negative n must not panic
-	}
-	for _, tc := range cases {
-		if got := stripComponents(tc.name, tc.n); got != tc.want {
-			t.Errorf("stripComponents(%q, %d) = %q, want %q", tc.name, tc.n, got, tc.want)
-		}
-	}
-}
-
-func TestExtractArchiveStrip(t *testing.T) {
-	data := makeTarGz(t, []struct{ name, content string }{
-		{"root/bin/tool", "binary"},
-		{"root/share/data", "data"},
-	}, nil)
-	archivePath := writeTempArchive(t, data, "tool.tar.gz")
-	dest := t.TempDir()
-
-	if err := extractArchiveStrip(archivePath, dest, 1); err != nil {
-		t.Fatalf("extractArchiveStrip: %v", err)
-	}
-	if got, _ := os.ReadFile(filepath.Join(dest, "bin", "tool")); string(got) != "binary" {
-		t.Errorf("bin/tool not extracted at stripped path, got %q", got)
-	}
-	if _, err := os.Stat(filepath.Join(dest, "root")); !os.IsNotExist(err) {
-		t.Errorf("leading component should have been stripped, but root/ exists")
-	}
-}
-
 func TestInstallGitHub_InstallDir(t *testing.T) {
 	data := makeTarGz(t, []struct{ name, content string }{
 		{"nvim-linux-x86_64/bin/nvim", "nvim binary"},
@@ -810,33 +768,33 @@ func TestInstallGitHub_InstallDir(t *testing.T) {
 	binDir := t.TempDir()
 	tool := config.Tool{Name: "neovim"}
 	inst := config.ToolInstall{
-		Method:          "github",
-		Repo:            "neovim/neovim",
-		Asset:           "nvim-linux-x86_64.tar.gz",
-		Binary:          "nvim",
-		InstallDir:      installDir,
-		StripComponents: 1,
+		Method:     "github",
+		Repo:       "neovim/neovim",
+		Asset:      "nvim-linux-x86_64.tar.gz",
+		Binary:     "nvim",
+		InstallDir: installDir,
 	}
 	if _, err := installGitHub(tool, inst, binDir, noTask); err != nil {
 		t.Fatalf("installGitHub: %v", err)
 	}
 
-	// Whole tree extracted (stripped) into install_dir.
-	if got, _ := os.ReadFile(filepath.Join(installDir, "bin", "nvim")); string(got) != "nvim binary" {
+	// Whole tree extracted verbatim into install_dir (nested top-level dir kept).
+	nvim := filepath.Join(installDir, "nvim-linux-x86_64", "bin", "nvim")
+	if got, _ := os.ReadFile(nvim); string(got) != "nvim binary" {
 		t.Errorf("nvim binary not in install_dir: %q", got)
 	}
-	if got, _ := os.ReadFile(filepath.Join(installDir, "share", "nvim", "runtime", "doc")); string(got) != "runtime files" {
+	if got, _ := os.ReadFile(filepath.Join(installDir, "nvim-linux-x86_64", "share", "nvim", "runtime", "doc")); string(got) != "runtime files" {
 		t.Errorf("runtime files not in install_dir: %q", got)
 	}
 
-	// bin_dir/nvim is a symlink to the binary inside install_dir.
+	// bin_dir/nvim is a symlink to the binary located inside install_dir.
 	link := filepath.Join(binDir, "nvim")
 	target, err := os.Readlink(link)
 	if err != nil {
 		t.Fatalf("expected symlink at %s: %v", link, err)
 	}
-	if target != filepath.Join(installDir, "bin", "nvim") {
-		t.Errorf("symlink points to %q, want %q", target, filepath.Join(installDir, "bin", "nvim"))
+	if target != nvim {
+		t.Errorf("symlink points to %q, want %q", target, nvim)
 	}
 }
 
@@ -862,12 +820,11 @@ func TestInstallGitHub_InstallDirReplacesStaleFiles(t *testing.T) {
 
 	tool := config.Tool{Name: "neovim"}
 	inst := config.ToolInstall{
-		Method:          "github",
-		Repo:            "neovim/neovim",
-		Asset:           "nvim-linux-x86_64.tar.gz",
-		Binary:          "nvim",
-		InstallDir:      installDir,
-		StripComponents: 1,
+		Method:     "github",
+		Repo:       "neovim/neovim",
+		Asset:      "nvim-linux-x86_64.tar.gz",
+		Binary:     "nvim",
+		InstallDir: installDir,
 	}
 	if _, err := installGitHub(tool, inst, binDir, noTask); err != nil {
 		t.Fatalf("installGitHub: %v", err)
@@ -897,12 +854,11 @@ func TestInstallGitHub_InstallDirFailureKeepsPriorInstall(t *testing.T) {
 
 	tool := config.Tool{Name: "neovim"}
 	inst := config.ToolInstall{
-		Method:          "github",
-		Repo:            "neovim/neovim",
-		Asset:           "nvim-linux-x86_64.tar.gz",
-		Binary:          "nvim",
-		InstallDir:      installDir,
-		StripComponents: 1,
+		Method:     "github",
+		Repo:       "neovim/neovim",
+		Asset:      "nvim-linux-x86_64.tar.gz",
+		Binary:     "nvim",
+		InstallDir: installDir,
 	}
 	if _, err := installGitHub(tool, inst, binDir, noTask); err == nil {
 		t.Fatal("expected install to fail when archive lacks the binary")

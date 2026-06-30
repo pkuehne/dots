@@ -470,22 +470,27 @@ func installGitHub(tool config.Tool, inst config.ToolInstall, binDir string, tas
 // the binary inside it. This keeps a binary together with the sibling files it
 // needs at runtime, unlike the binary-only install path.
 //
-// The new tree is staged in a sibling directory and only swapped into place once
-// extraction succeeds and the binary is located, so a failed download or
-// extraction leaves any previous install untouched.
+// The archive is extracted verbatim — no path rewriting — by extractArchive,
+// which already rejects traversal and out-of-tree symlink entries. The binary is
+// then located anywhere in the tree (see locateBinary), so a nested top-level
+// directory (e.g. nvim-linux-x86_64/bin/nvim) is handled transparently. The new
+// tree is staged in a sibling directory and swapped into place via rename only
+// after the binary is located; the prior install is moved aside to a backup
+// first and restored if the swap fails, so a failed install never loses it.
 func installArchiveTree(archivePath string, inst config.ToolInstall, binaryName, dest string) error {
 	installDir, err := safeInstallDir(inst.InstallDir, filepath.Dir(dest))
 	if err != nil {
 		return err
 	}
 
-	// Stage beside installDir (same parent, so the final rename is atomic and on
-	// one filesystem). Clear any leftover staging dir from a prior failed run.
+	// Stage beside installDir (same parent, so the swap renames are atomic and on
+	// one filesystem). Clear any leftovers from a prior failed run.
 	staging := installDir + ".dots-new"
+	backup := installDir + ".dots-old"
 	if err := os.RemoveAll(staging); err != nil {
 		return errs.NewTool(fmt.Sprintf("cannot clear staging dir %s", staging), err.Error())
 	}
-	if err := extractArchiveStrip(archivePath, staging, inst.StripComponents); err != nil {
+	if err := extractArchive(archivePath, staging); err != nil {
 		os.RemoveAll(staging)
 		return err
 	}
@@ -494,15 +499,29 @@ func installArchiveTree(archivePath string, inst config.ToolInstall, binaryName,
 		return err
 	}
 
-	// The staged tree is good: replace the prior install wholesale (a partial
-	// overlay would leave behind files removed in the new release).
-	if err := os.RemoveAll(installDir); err != nil {
+	// Swap: move any prior install aside, then rename the staged tree into place.
+	// If the second rename fails, restore the backup so the prior install — and
+	// thus the tool — survives intact.
+	if err := os.RemoveAll(backup); err != nil {
 		os.RemoveAll(staging)
-		return errs.NewTool(fmt.Sprintf("cannot clear install dir %s", installDir), err.Error())
+		return errs.NewTool(fmt.Sprintf("cannot clear backup dir %s", backup), err.Error())
+	}
+	hadPrior := false
+	if _, statErr := os.Lstat(installDir); statErr == nil {
+		if err := os.Rename(installDir, backup); err != nil {
+			os.RemoveAll(staging)
+			return errs.NewTool(fmt.Sprintf("cannot move prior install %s aside", installDir), err.Error())
+		}
+		hadPrior = true
 	}
 	if err := os.Rename(staging, installDir); err != nil {
+		if hadPrior {
+			_ = os.Rename(backup, installDir) // roll back
+		}
+		os.RemoveAll(staging)
 		return errs.NewTool(fmt.Sprintf("cannot move staged tree into %s", installDir), err.Error())
 	}
+	os.RemoveAll(backup)
 
 	src, err := locateBinary(installDir, binaryName, inst.BinaryPath)
 	if err != nil {
@@ -633,34 +652,12 @@ func sanitizeArchivePath(dest, name string) (string, error) {
 	return memberPath, nil
 }
 
-// stripComponents drops the first n slash-separated components from an archive
-// entry name, mirroring tar --strip-components. It returns "" when the entry has
-// n or fewer components (nothing remains after stripping).
-func stripComponents(name string, n int) string {
-	trimmed := strings.Trim(name, "/")
-	if n <= 0 {
-		return trimmed
-	}
-	parts := strings.Split(trimmed, "/")
-	if len(parts) <= n {
-		return ""
-	}
-	return strings.Join(parts[n:], "/")
-}
-
 // extractArchive extracts the archive at archivePath into dest using the
 // mholt/archives library, which handles tar.gz, tar.bz2, tar.xz, tar.zst, tar
 // and zip uniformly. Directories, regular files and symlinks are materialised;
 // every entry's path is checked to stay within dest, and symlinks are rejected
 // if their target escapes dest.
 func extractArchive(archivePath, dest string) error {
-	return extractArchiveStrip(archivePath, dest, 0)
-}
-
-// extractArchiveStrip is extractArchive with a tar --strip-components style
-// prefix removal: strip leading path components are dropped from every entry,
-// and entries shallower than strip are skipped. strip == 0 extracts verbatim.
-func extractArchiveStrip(archivePath, dest string, strip int) error {
 	f, err := os.Open(archivePath)
 	if err != nil {
 		return errs.NewTool(fmt.Sprintf("cannot open archive %s", archivePath), err.Error())
@@ -685,16 +682,7 @@ func extractArchiveStrip(archivePath, dest string, strip int) error {
 	}
 
 	handler := func(ctx context.Context, info archives.FileInfo) error {
-		name := info.NameInArchive
-		if strip > 0 {
-			name = stripComponents(name, strip)
-			if name == "" {
-				// Entry lies at or above the strip depth; it has no place in
-				// the stripped tree, so skip it.
-				return nil
-			}
-		}
-		memberPath, err := sanitizeArchivePath(dest, name)
+		memberPath, err := sanitizeArchivePath(dest, info.NameInArchive)
 		if err != nil {
 			return err
 		}
