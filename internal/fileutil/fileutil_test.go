@@ -130,6 +130,31 @@ func TestEnsureParent_ConcurrentSharedDir(t *testing.T) {
 	}
 }
 
+func TestEnsureParent_SymlinkedSensitiveDirNotChmodded(t *testing.T) {
+	// A symlink whose name matches a sensitive dir (e.g. ~/.ssh -> elsewhere)
+	// is a valid parent, but EnsureParent must not chmod the symlink target:
+	// that would change permissions outside the intended path.
+	base := t.TempDir()
+	real := filepath.Join(base, "store")
+	if err := os.Mkdir(real, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(base, ".ssh")
+	if err := os.Symlink(real, link); err != nil {
+		t.Fatal(err)
+	}
+	if err := fileutil.EnsureParent(filepath.Join(link, "config")); err != nil {
+		t.Fatalf("EnsureParent through symlinked sensitive dir: %v", err)
+	}
+	info, err := os.Stat(real)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := info.Mode().Perm(); got != 0o755 {
+		t.Fatalf("symlink target perms changed: got %o, want 0755", got)
+	}
+}
+
 func TestEnsureParent_SymlinkedDir(t *testing.T) {
 	base := t.TempDir()
 	// A real directory, and a symlink pointing at it standing in for the

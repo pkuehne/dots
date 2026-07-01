@@ -67,24 +67,8 @@ func EnsureParent(path string) error {
 // ensureDir creates dir and all its ancestors, applying sensitive-dir
 // permissions where applicable.
 func ensureDir(dir string) error {
-	if info, err := os.Lstat(dir); err == nil {
-		// Resolve symlinks: a symlink pointing at a directory is a valid
-		// parent. Only a non-directory (or a dangling/non-dir symlink) is an
-		// error. Using Lstat's result directly would reject every
-		// symlinked directory as if it were a regular file.
-		if info.Mode()&os.ModeSymlink != 0 {
-			if target, terr := os.Stat(dir); terr != nil || !target.IsDir() {
-				return &os.PathError{Op: "mkdir", Path: dir, Err: os.ErrExist}
-			}
-			return nil
-		}
-		if !info.IsDir() {
-			return &os.PathError{Op: "mkdir", Path: dir, Err: os.ErrExist}
-		}
-		if mode, ok := sensitiveDirModes[filepath.Base(dir)]; ok {
-			_ = os.Chmod(dir, mode)
-		}
-		return nil
+	if err, ok := existingDirOK(dir); ok {
+		return err
 	}
 
 	// Create parent first, then this dir.
@@ -100,20 +84,48 @@ func ensureDir(dir string) error {
 	}
 	if err := os.Mkdir(dir, mode); err != nil {
 		// Tolerate the race where a concurrent goroutine created dir between
-		// our Lstat and Mkdir: EEXIST is only success if the entry now present
-		// is actually a directory. A non-directory (or dangling/non-dir
-		// symlink) that appeared in the meantime is still a real error.
+		// our Lstat and Mkdir: re-run the existing-entry check so EEXIST is
+		// judged exactly as the fast path would (symlink-to-dir is success
+		// without chmod; a non-dir is still a real error).
 		if os.IsExist(err) {
-			if info, serr := os.Stat(dir); serr == nil && info.IsDir() {
-				if _, ok := sensitiveDirModes[filepath.Base(dir)]; ok {
-					_ = os.Chmod(dir, mode)
-				}
-				return nil
+			if rerr, ok := existingDirOK(dir); ok {
+				return rerr
 			}
 		}
 		return err
 	}
 	return nil
+}
+
+// existingDirOK inspects an entry that already exists at dir. ok reports
+// whether the entry was present (so the caller should stop and return err);
+// when ok is false the entry is absent and dir must be created. A symlink
+// pointing at a directory is accepted as a valid parent without altering the
+// target's permissions; a non-directory (or dangling/non-dir symlink) yields
+// an EEXIST error. Sensitive-dir permissions are applied only to a real
+// directory owned at this path.
+func existingDirOK(dir string) (err error, ok bool) {
+	info, lerr := os.Lstat(dir)
+	if lerr != nil {
+		return nil, false
+	}
+	// Resolve symlinks: a symlink pointing at a directory is a valid parent.
+	// Only a non-directory (or a dangling/non-dir symlink) is an error. Using
+	// Lstat's result directly would reject every symlinked directory as if it
+	// were a regular file.
+	if info.Mode()&os.ModeSymlink != 0 {
+		if target, terr := os.Stat(dir); terr != nil || !target.IsDir() {
+			return &os.PathError{Op: "mkdir", Path: dir, Err: os.ErrExist}, true
+		}
+		return nil, true
+	}
+	if !info.IsDir() {
+		return &os.PathError{Op: "mkdir", Path: dir, Err: os.ErrExist}, true
+	}
+	if mode, ok := sensitiveDirModes[filepath.Base(dir)]; ok {
+		_ = os.Chmod(dir, mode)
+	}
+	return nil, true
 }
 
 // Backup copies path to path.dots-bak (preserving symlinks as symlinks).
