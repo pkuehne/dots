@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.5.0](https://github.com/pkuehne/dots/compare/v1.4.0...v1.5.0) (2026-07-01)
+
+
+### Features
+
+* install full archive tree with install_dir ([#44](https://github.com/pkuehne/dots/issues/44)) ([bad0fd6](https://github.com/pkuehne/dots/commit/bad0fd6e81964104f49659023a029060b47e78ab))
+
+
+### Bug Fixes
+
+* remove stale shell snippets on apply ([#47](https://github.com/pkuehne/dots/issues/47)) ([668f2e1](https://github.com/pkuehne/dots/commit/668f2e10f5fcfd7edd15eb3cbb47130d2f4adcbb))
+
 ## [1.4.0](https://github.com/pkuehne/dots/compare/v1.3.0...v1.4.0) (2026-06-25)
 
 
