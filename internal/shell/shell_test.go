@@ -634,6 +634,60 @@ func TestCleanRemovesSnippetOfShellLessTool(t *testing.T) {
 	}
 }
 
+// Apply must clean up a snippet whose tool no longer declares a shell directive.
+// Otherwise removing shell.* from a tool in dots.toml leaves 050-{tool}.sh behind
+// on the next `dots apply` (issue #46).
+func TestApplyRemovesStaleToolSnippet(t *testing.T) {
+	dir := t.TempDir()
+	stale := filepath.Join(dir, "050-jq.sh")
+	if err := os.WriteFile(stale, []byte("# stale"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := config.Config{
+		Shell: config.ShellConfig{
+			Dir:    dir,
+			Zshrc:  filepath.Join(t.TempDir(), ".zshrc"),
+			Bashrc: filepath.Join(t.TempDir(), ".bashrc"),
+		},
+		RepoRoot: t.TempDir(),
+		Env:      config.EnvConfig{Vars: map[string]string{}},
+		Tools:    []config.Tool{{Name: "jq", Shell: config.ToolShell{}}},
+	}
+	if err := Apply(cfg, false, false, nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(stale); !os.IsNotExist(err) {
+		t.Error("apply should remove the snippet of a tool without shell config")
+	}
+	// Generated snippets apply still owns must remain.
+	if _, err := os.Stat(filepath.Join(dir, "010-env.sh")); err != nil {
+		t.Error("010-env.sh should still be written by apply")
+	}
+}
+
+// A dry-run apply must not delete stale snippets.
+func TestApplyStaleDryRun(t *testing.T) {
+	dir := t.TempDir()
+	stale := filepath.Join(dir, "050-jq.sh")
+	if err := os.WriteFile(stale, []byte("# stale"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := config.Config{
+		Shell:    config.ShellConfig{Dir: dir},
+		RepoRoot: t.TempDir(),
+		Env:      config.EnvConfig{Vars: map[string]string{}},
+		Tools:    []config.Tool{{Name: "jq", Shell: config.ToolShell{}}},
+	}
+	if err := Apply(cfg, true, false, nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(stale); err != nil {
+		t.Error("dry-run apply must not remove the stale snippet")
+	}
+}
+
 func TestWriteSnippetsDryRun(t *testing.T) {
 	dir := t.TempDir()
 	snippetDir := filepath.Join(dir, "shell.d")
