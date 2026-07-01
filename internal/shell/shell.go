@@ -522,11 +522,16 @@ func staleSnippets(cfg config.Config) ([]string, error) {
 // current config. With dryRun=true no files are removed. It backs the standalone
 // `dots shell clean` command; Apply runs the same cleanup as part of every apply.
 func Clean(cfg config.Config, dryRun bool) error {
+	dir := fileutil.Expand(cfg.Shell.Dir)
+	// Preserve the original no-op: a missing shell.d is a silent success, not a
+	// "No stale snippets found." line — nothing has been deployed to clean.
+	if _, err := os.Stat(dir); os.IsNotExist(err) {
+		return nil
+	}
 	stale, err := staleSnippets(cfg)
 	if err != nil {
 		return err
 	}
-	dir := fileutil.Expand(cfg.Shell.Dir)
 	for _, name := range stale {
 		if !dryRun {
 			if err := os.Remove(filepath.Join(dir, name)); err != nil {
