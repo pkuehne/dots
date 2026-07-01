@@ -65,7 +65,7 @@ var (
 	sshHostSpec   = map[string]valKind{"host": kScalar, "only": kArray} // extra keys allowed: free-form SSH options
 	toolsSpec     = map[string]valKind{"bin_dir": kScalar}
 	toolSpec      = map[string]valKind{"name": kScalar, "desc": kScalar, "check": kScalar, "tags": kArray, "only": kArray, "profile": kScalar, "install": kTableArray, "shell": kTable, "git": kTable}
-	installSpec   = map[string]valKind{"method": kScalar, "package": kScalar, "repo": kScalar, "asset": kScalar, "binary": kScalar, "binary_path": kScalar, "version": kScalar, "script": kScalar, "note": kScalar, "only": kArray, "arch_map": kTable}
+	installSpec   = map[string]valKind{"method": kScalar, "package": kScalar, "repo": kScalar, "asset": kScalar, "binary": kScalar, "binary_path": kScalar, "install_dir": kScalar, "version": kScalar, "script": kScalar, "note": kScalar, "only": kArray, "arch_map": kTable}
 	toolShellSpec = map[string]valKind{"env": kTable, "init": kScalar, "path": kArray}
 	toolGitSpec   = map[string]valKind{"pager": kScalar, "diff": kScalar}
 	fileSpec      = map[string]valKind{"src": kScalar, "dst": kScalar, "only": kArray, "profile": kScalar, "secret": kScalar, "mode": kScalar, "link": kScalar}

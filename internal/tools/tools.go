@@ -434,10 +434,22 @@ func installGitHub(tool config.Tool, inst config.ToolInstall, binDir string, tas
 	if binaryName == "" {
 		binaryName = tool.Name
 	}
+	// binaryName becomes the symlink/copy destination under binDir. Reject
+	// anything but a plain filename so a stray "binary" value (absolute, or
+	// containing a path separator like ../foo) cannot escape binDir.
+	if err := validPlainName(binaryName); err != nil {
+		return "", err
+	}
 	dest := filepath.Join(binDir, binaryName)
 
 	task.Stage("installing")
 	if isExtractableArchive(matched.Name) {
+		if inst.InstallDir != "" {
+			if err := installArchiveTree(downloadPath, inst, binaryName, dest); err != nil {
+				return "", err
+			}
+			return version, nil
+		}
 		extractDir := filepath.Join(tmpDir, "extracted")
 		if err := extractArchive(downloadPath, extractDir); err != nil {
 			return "", err
@@ -447,10 +459,163 @@ func installGitHub(tool config.Tool, inst config.ToolInstall, binDir string, tas
 		}
 		return version, nil
 	}
+	if inst.InstallDir != "" {
+		return "", errs.NewTool(
+			fmt.Sprintf("install_dir is set for %s but asset %q is not an archive", inst.Repo, matched.Name),
+			"Remove 'install_dir', or select an archive asset (.tar.gz, .tar.xz, .tar.bz2, .tar.zst, .zip).",
+		)
+	}
 	if err := installBinaryFile(downloadPath, dest); err != nil {
 		return "", err
 	}
 	return version, nil
+}
+
+// installArchiveTree extracts the whole archive into inst.InstallDir (replacing
+// any prior contents so stale runtime files never linger) and symlinks dest to
+// the binary inside it. This keeps a binary together with the sibling files it
+// needs at runtime, unlike the binary-only install path.
+//
+// The archive is extracted verbatim — no path rewriting — by extractArchive,
+// which already rejects traversal and out-of-tree symlink entries. The binary is
+// then located anywhere in the tree (see locateBinary), so a nested top-level
+// directory (e.g. nvim-linux-x86_64/bin/nvim) is handled transparently. The new
+// tree is staged in a sibling directory and swapped into place via rename only
+// after the binary is located; the prior install is moved aside to a backup
+// first and restored if the swap fails, so a failed install never loses it.
+func installArchiveTree(archivePath string, inst config.ToolInstall, binaryName, dest string) error {
+	installDir, err := safeInstallDir(inst.InstallDir, filepath.Dir(dest))
+	if err != nil {
+		return err
+	}
+
+	// Stage beside installDir (same parent, so the swap renames are atomic and on
+	// one filesystem). Clear any leftovers from a prior failed run.
+	staging := installDir + ".dots-new"
+	backup := installDir + ".dots-old"
+	if err := os.RemoveAll(staging); err != nil {
+		return errs.NewTool(fmt.Sprintf("cannot clear staging dir %s", staging), err.Error())
+	}
+	if err := extractArchive(archivePath, staging); err != nil {
+		os.RemoveAll(staging)
+		return err
+	}
+	if _, err := locateBinary(staging, binaryName, inst.BinaryPath); err != nil {
+		os.RemoveAll(staging)
+		return err
+	}
+
+	// Swap: move any prior install aside, then rename the staged tree into place.
+	// If the second rename fails, restore the backup so the prior install — and
+	// thus the tool — survives intact.
+	if err := os.RemoveAll(backup); err != nil {
+		os.RemoveAll(staging)
+		return errs.NewTool(fmt.Sprintf("cannot clear backup dir %s", backup), err.Error())
+	}
+	hadPrior := false
+	if _, statErr := os.Lstat(installDir); statErr == nil {
+		if err := os.Rename(installDir, backup); err != nil {
+			os.RemoveAll(staging)
+			return errs.NewTool(fmt.Sprintf("cannot move prior install %s aside", installDir), err.Error())
+		}
+		hadPrior = true
+	}
+	if err := os.Rename(staging, installDir); err != nil {
+		if hadPrior {
+			_ = os.Rename(backup, installDir) // roll back
+		}
+		os.RemoveAll(staging)
+		return errs.NewTool(fmt.Sprintf("cannot move staged tree into %s", installDir), err.Error())
+	}
+
+	// Keep the backup until the symlink is in place: if locating the binary or
+	// creating the symlink fails now (e.g. symlinks unsupported), restore the
+	// prior install so the tool is not left broken.
+	src, err := locateBinary(installDir, binaryName, inst.BinaryPath)
+	if err == nil {
+		err = symlinkBinary(src, dest)
+	}
+	if err != nil {
+		os.RemoveAll(installDir)
+		if hadPrior {
+			_ = os.Rename(backup, installDir) // roll back
+		}
+		return err
+	}
+	os.RemoveAll(backup)
+	return nil
+}
+
+// validPlainName rejects a configured binary name that is not a bare filename —
+// absolute, empty, "." / "..", or containing a path separator. Such a value
+// would let filepath.Join(binDir, name) resolve outside binDir.
+func validPlainName(name string) error {
+	if name == "" || name == "." || name == ".." ||
+		filepath.IsAbs(name) || strings.ContainsAny(name, `/\`) {
+		return errs.NewTool(
+			fmt.Sprintf("invalid binary name %q", name),
+			"'binary' must be a plain filename (no path separators, not absolute).",
+		)
+	}
+	return nil
+}
+
+// safeInstallDir expands and validates a configured install_dir before it is
+// wiped and replaced. Because installArchiveTree removes the directory wholesale,
+// a careless value ("~", "/", or any dir containing bin_dir) would delete large
+// parts of the user's home or system. It returns a cleaned, absolute path and
+// rejects the dangerous cases. binDir is the directory the binary symlink lives
+// in (so install_dir is not allowed to contain or equal it).
+func safeInstallDir(configured, binDir string) (string, error) {
+	installDir := fileutil.Expand(configured)
+	if installDir == "" {
+		return "", errs.NewTool("install_dir expands to an empty path", "Set 'install_dir' to a valid directory path.")
+	}
+	abs, err := filepath.Abs(installDir)
+	if err != nil {
+		return "", errs.NewTool(fmt.Sprintf("cannot resolve install_dir %q", installDir), err.Error())
+	}
+	installDir = filepath.Clean(abs)
+
+	if installDir == string(os.PathSeparator) {
+		return "", errs.NewTool("refusing to use install_dir set to the filesystem root", "Set 'install_dir' to a dedicated directory (e.g. ~/.local/<tool>).")
+	}
+	if home, err := os.UserHomeDir(); err == nil && installDir == filepath.Clean(home) {
+		return "", errs.NewTool("refusing to use install_dir set to the home directory", "Set 'install_dir' to a dedicated subdirectory (e.g. ~/.local/<tool>).")
+	}
+	binDirAbs := binDir
+	if a, err := filepath.Abs(binDir); err == nil {
+		binDirAbs = a
+	}
+	if containedIn(installDir, filepath.Clean(binDirAbs)) {
+		return "", errs.NewTool(
+			fmt.Sprintf("refusing to use install_dir %s because it contains bin_dir %s", installDir, filepath.Clean(binDirAbs)),
+			"Choose an 'install_dir' that does not contain (or equal) 'bin_dir'.",
+		)
+	}
+	return installDir, nil
+}
+
+// symlinkBinary points dest at src, replacing any existing file or symlink so
+// the operation is idempotent. The new link is created under a temporary name
+// and renamed over dest, so a failed os.Symlink never leaves dest missing when
+// it previously existed.
+func symlinkBinary(src, dest string) error {
+	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
+		return errs.NewTool(fmt.Sprintf("cannot create bin dir %s", filepath.Dir(dest)), err.Error())
+	}
+	tmp := dest + ".dots-link"
+	if err := os.Remove(tmp); err != nil && !os.IsNotExist(err) {
+		return errs.NewTool(fmt.Sprintf("cannot clear temporary link %s", tmp), err.Error())
+	}
+	if err := os.Symlink(src, tmp); err != nil {
+		return errs.NewTool(fmt.Sprintf("cannot symlink %s -> %s", tmp, src), err.Error())
+	}
+	if err := os.Rename(tmp, dest); err != nil {
+		os.Remove(tmp)
+		return errs.NewTool(fmt.Sprintf("cannot move symlink into place at %s", dest), err.Error())
+	}
+	return nil
 }
 
 // resolveRelease fetches the release a github install method targets: the
@@ -647,21 +812,41 @@ func extractRegularFile(memberPath string, info archives.FileInfo) error {
 // When binaryPath is set it is used as an exact relative path inside extractDir.
 // Otherwise the shallowest file matching binaryName is chosen.
 func findAndInstallBinary(extractDir, binaryName, dest, binaryPath string) error {
+	src, err := locateBinary(extractDir, binaryName, binaryPath)
+	if err != nil {
+		return err
+	}
+	return installBinaryFile(src, dest)
+}
+
+// locateBinary returns the path of a binary inside root. When binaryPath is set
+// it is an exact relative path inside root; otherwise the shallowest file whose
+// base name equals binaryName is chosen.
+func locateBinary(root, binaryName, binaryPath string) (string, error) {
 	if binaryPath != "" {
-		src := filepath.Join(extractDir, filepath.FromSlash(binaryPath))
+		src := filepath.Join(root, filepath.FromSlash(binaryPath))
+		// binary_path is a relative path inside the archive; reject an absolute
+		// path or one that escapes root via "..", so we never stat/install a
+		// file outside the extracted tree.
+		if filepath.IsAbs(binaryPath) || !containedIn(root, src) {
+			return "", errs.NewTool(
+				fmt.Sprintf("binary_path %q escapes the archive root", binaryPath),
+				"Set 'binary_path' to a relative path inside the archive.",
+			)
+		}
 		info, err := os.Stat(src)
 		if err != nil || !info.Mode().IsRegular() {
-			return errs.NewTool(
+			return "", errs.NewTool(
 				fmt.Sprintf("binary_path %q not found in archive", binaryPath),
 				"Check the 'binary_path' field in the install method.",
 			)
 		}
-		return installBinaryFile(src, dest)
+		return src, nil
 	}
 
 	// Walk and collect all files whose base name equals binaryName.
 	var candidates []string
-	_ = filepath.WalkDir(extractDir, func(path string, d os.DirEntry, err error) error {
+	_ = filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
 		if err == nil && !d.IsDir() && d.Name() == binaryName {
 			candidates = append(candidates, path)
 		}
@@ -669,7 +854,7 @@ func findAndInstallBinary(extractDir, binaryName, dest, binaryPath string) error
 	})
 
 	if len(candidates) == 0 {
-		return errs.NewTool(
+		return "", errs.NewTool(
 			fmt.Sprintf("binary %q not found in archive", binaryName),
 			"Check the 'binary' field in the install method.",
 		)
@@ -682,7 +867,7 @@ func findAndInstallBinary(extractDir, binaryName, dest, binaryPath string) error
 			best = c
 		}
 	}
-	return installBinaryFile(best, dest)
+	return best, nil
 }
 
 func installBinaryFile(src, dest string) error {

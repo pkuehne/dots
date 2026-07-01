@@ -253,6 +253,7 @@ func parseToolInstall(raw map[string]any) ToolInstall {
 		Asset:      str(raw, "asset", ""),
 		Binary:     str(raw, "binary", ""),
 		BinaryPath: str(raw, "binary_path", ""),
+		InstallDir: str(raw, "install_dir", ""),
 		Version:    str(raw, "version", ""),
 		Script:     str(raw, "script", ""),
 		Note:       str(raw, "note", ""),

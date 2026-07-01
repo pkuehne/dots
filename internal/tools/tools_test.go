@@ -442,6 +442,31 @@ func TestFindAndInstallBinary_BinaryPathMissing(t *testing.T) {
 	}
 }
 
+func TestFindAndInstallBinary_BinaryPathEscapesRoot(t *testing.T) {
+	// A secret file sitting outside the extracted tree must not be reachable
+	// through a "../" binary_path.
+	outside := t.TempDir()
+	secret := filepath.Join(outside, "secret")
+	if err := os.WriteFile(secret, []byte("x"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	root := filepath.Join(outside, "extracted")
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	dest := filepath.Join(t.TempDir(), "out")
+	err := findAndInstallBinary(root, "secret", dest, "../secret")
+	if err == nil {
+		t.Fatal("expected error for binary_path escaping the archive root")
+	}
+	if !strings.Contains(err.Error(), "escapes the archive root") {
+		t.Errorf("unexpected error: %v", err)
+	}
+	if _, statErr := os.Stat(dest); !os.IsNotExist(statErr) {
+		t.Error("nothing should have been installed for an escaping binary_path")
+	}
+}
+
 func TestFindAndInstallBinary_ShallowWins(t *testing.T) {
 	dir := t.TempDir()
 	shallow := filepath.Join(dir, "bin", "cmake")
@@ -727,6 +752,189 @@ func TestInstallGitHub_BinaryPath(t *testing.T) {
 	got, _ := os.ReadFile(filepath.Join(binDir, "cmake"))
 	if string(got) != "real binary" {
 		t.Errorf("binary_path should have selected bin/cmake, got: %q", got)
+	}
+}
+
+// ── install_dir (full archive tree) ───────────────────────────────────────────
+
+func TestInstallGitHub_InstallDir(t *testing.T) {
+	data := makeTarGz(t, []struct{ name, content string }{
+		{"nvim-linux-x86_64/bin/nvim", "nvim binary"},
+		{"nvim-linux-x86_64/share/nvim/runtime/doc", "runtime files"},
+	}, nil)
+	newGitHubTestServer(t, "nvim-linux-x86_64.tar.gz", data)
+
+	installDir := filepath.Join(t.TempDir(), "nvim")
+	binDir := t.TempDir()
+	tool := config.Tool{Name: "neovim"}
+	inst := config.ToolInstall{
+		Method:     "github",
+		Repo:       "neovim/neovim",
+		Asset:      "nvim-linux-x86_64.tar.gz",
+		Binary:     "nvim",
+		InstallDir: installDir,
+	}
+	if _, err := installGitHub(tool, inst, binDir, noTask); err != nil {
+		t.Fatalf("installGitHub: %v", err)
+	}
+
+	// Whole tree extracted verbatim into install_dir (nested top-level dir kept).
+	nvim := filepath.Join(installDir, "nvim-linux-x86_64", "bin", "nvim")
+	if got, _ := os.ReadFile(nvim); string(got) != "nvim binary" {
+		t.Errorf("nvim binary not in install_dir: %q", got)
+	}
+	if got, _ := os.ReadFile(filepath.Join(installDir, "nvim-linux-x86_64", "share", "nvim", "runtime", "doc")); string(got) != "runtime files" {
+		t.Errorf("runtime files not in install_dir: %q", got)
+	}
+
+	// bin_dir/nvim is a symlink to the binary located inside install_dir.
+	link := filepath.Join(binDir, "nvim")
+	target, err := os.Readlink(link)
+	if err != nil {
+		t.Fatalf("expected symlink at %s: %v", link, err)
+	}
+	if target != nvim {
+		t.Errorf("symlink points to %q, want %q", target, nvim)
+	}
+}
+
+func TestInstallGitHub_InstallDirReplacesStaleFiles(t *testing.T) {
+	installDir := filepath.Join(t.TempDir(), "nvim")
+	binDir := t.TempDir()
+	// Seed a stale file that a fresh extraction would not produce.
+	if err := os.MkdirAll(installDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	stale := filepath.Join(installDir, "share", "stale.txt")
+	if err := os.MkdirAll(filepath.Dir(stale), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(stale, []byte("old"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	data := makeTarGz(t, []struct{ name, content string }{
+		{"nvim-linux-x86_64/bin/nvim", "nvim binary"},
+	}, nil)
+	newGitHubTestServer(t, "nvim-linux-x86_64.tar.gz", data)
+
+	tool := config.Tool{Name: "neovim"}
+	inst := config.ToolInstall{
+		Method:     "github",
+		Repo:       "neovim/neovim",
+		Asset:      "nvim-linux-x86_64.tar.gz",
+		Binary:     "nvim",
+		InstallDir: installDir,
+	}
+	if _, err := installGitHub(tool, inst, binDir, noTask); err != nil {
+		t.Fatalf("installGitHub: %v", err)
+	}
+	if _, err := os.Stat(stale); !os.IsNotExist(err) {
+		t.Errorf("stale file should have been removed when install_dir was replaced")
+	}
+}
+
+func TestInstallGitHub_InstallDirFailureKeepsPriorInstall(t *testing.T) {
+	installDir := filepath.Join(t.TempDir(), "nvim")
+	binDir := t.TempDir()
+	// A working prior install that must survive a failed re-install.
+	prior := filepath.Join(installDir, "bin", "nvim")
+	if err := os.MkdirAll(filepath.Dir(prior), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(prior, []byte("old binary"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	// New archive is missing the binary, so the install must fail after staging.
+	data := makeTarGz(t, []struct{ name, content string }{
+		{"nvim-linux-x86_64/share/doc", "docs only"},
+	}, nil)
+	newGitHubTestServer(t, "nvim-linux-x86_64.tar.gz", data)
+
+	tool := config.Tool{Name: "neovim"}
+	inst := config.ToolInstall{
+		Method:     "github",
+		Repo:       "neovim/neovim",
+		Asset:      "nvim-linux-x86_64.tar.gz",
+		Binary:     "nvim",
+		InstallDir: installDir,
+	}
+	if _, err := installGitHub(tool, inst, binDir, noTask); err == nil {
+		t.Fatal("expected install to fail when archive lacks the binary")
+	}
+	// Prior install untouched; no staging dir left behind.
+	if got, _ := os.ReadFile(prior); string(got) != "old binary" {
+		t.Errorf("prior install should be intact, got %q", got)
+	}
+	if _, err := os.Stat(installDir + ".dots-new"); !os.IsNotExist(err) {
+		t.Error("staging dir should have been cleaned up on failure")
+	}
+}
+
+func TestInstallGitHub_InstallDirNonArchiveRejected(t *testing.T) {
+	newGitHubTestServer(t, "tool-linux", []byte("raw binary"))
+
+	tool := config.Tool{Name: "tool"}
+	inst := config.ToolInstall{
+		Method:     "github",
+		Repo:       "owner/tool",
+		Asset:      "tool-linux",
+		Binary:     "tool",
+		InstallDir: filepath.Join(t.TempDir(), "tool"),
+	}
+	_, err := installGitHub(tool, inst, t.TempDir(), noTask)
+	if err == nil {
+		t.Fatal("expected error when install_dir is set on a non-archive asset")
+	}
+	if !strings.Contains(err.Error(), "not an archive") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestSafeInstallDir(t *testing.T) {
+	home, _ := os.UserHomeDir()
+	binDir := filepath.Join(home, ".local", "bin")
+
+	t.Run("rejects root", func(t *testing.T) {
+		if _, err := safeInstallDir("/", binDir); err == nil {
+			t.Error("expected error for filesystem root")
+		}
+	})
+	t.Run("rejects home", func(t *testing.T) {
+		if _, err := safeInstallDir("~", binDir); err == nil {
+			t.Error("expected error for home directory")
+		}
+	})
+	t.Run("rejects dir containing bin_dir", func(t *testing.T) {
+		// ~/.local contains ~/.local/bin, so wiping it would destroy bin_dir.
+		if _, err := safeInstallDir("~/.local", binDir); err == nil {
+			t.Error("expected error for install_dir containing bin_dir")
+		}
+	})
+	t.Run("accepts dedicated subdir and returns absolute path", func(t *testing.T) {
+		got, err := safeInstallDir("~/.local/nvim", binDir)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if want := filepath.Join(home, ".local", "nvim"); got != want {
+			t.Errorf("got %q, want %q", got, want)
+		}
+	})
+}
+
+func TestValidPlainName(t *testing.T) {
+	ok := []string{"nvim", "go", "ripgrep-1.2"}
+	for _, name := range ok {
+		if err := validPlainName(name); err != nil {
+			t.Errorf("validPlainName(%q) = %v, want nil", name, err)
+		}
+	}
+	bad := []string{"", ".", "..", "../foo", "sub/bin", `sub\bin`, "/usr/bin/nvim"}
+	for _, name := range bad {
+		if err := validPlainName(name); err == nil {
+			t.Errorf("validPlainName(%q) = nil, want error", name)
+		}
 	}
 }
 

@@ -76,12 +76,18 @@ type ToolGit struct {
 
 // ToolInstall holds one [[tool.install]] entry.
 type ToolInstall struct {
-	Method     string            `toml:"method"`
-	Package    string            `toml:"package"`
-	Repo       string            `toml:"repo"`
-	Asset      string            `toml:"asset"`
-	Binary     string            `toml:"binary"`
-	BinaryPath string            `toml:"binary_path"`
+	Method     string `toml:"method"`
+	Package    string `toml:"package"`
+	Repo       string `toml:"repo"`
+	Asset      string `toml:"asset"`
+	Binary     string `toml:"binary"`
+	BinaryPath string `toml:"binary_path"`
+	// InstallDir, when set on a github method whose asset is an archive, makes
+	// dots extract the whole archive tree into this directory (replacing any
+	// prior contents) and symlink {bin_dir}/{binary} to the binary inside it.
+	// This keeps a binary together with sibling runtime files it depends on
+	// (e.g. Neovim's share/nvim/runtime). Empty means "install just the binary".
+	InstallDir string            `toml:"install_dir"`
 	Version    string            `toml:"version"`
 	Script     string            `toml:"script"`
 	Note       string            `toml:"note"`
