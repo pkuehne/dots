@@ -3,6 +3,7 @@ package fileutil_test
 import (
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 
 	"github.com/pkuehne/dots/internal/fileutil"
@@ -86,6 +87,40 @@ func TestEnsureParent_Idempotent(t *testing.T) {
 	}
 	if err := fileutil.EnsureParent(path); err != nil {
 		t.Fatalf("second call: %v", err)
+	}
+}
+
+func TestEnsureParent_ConcurrentSharedDir(t *testing.T) {
+	// Two files sharing a not-yet-existing parent, created concurrently:
+	// the EEXIST race in os.Mkdir must be tolerated (issue #45).
+	base := t.TempDir()
+	shared := filepath.Join(base, "config", "smug")
+	paths := []string{
+		filepath.Join(shared, "dashboard.yml"),
+		filepath.Join(shared, "dotfiles.yml"),
+	}
+
+	const workers = 32
+	errs := make(chan error, workers*len(paths))
+	var wg sync.WaitGroup
+	for i := 0; i < workers; i++ {
+		for _, p := range paths {
+			wg.Add(1)
+			go func(p string) {
+				defer wg.Done()
+				errs <- fileutil.EnsureParent(p)
+			}(p)
+		}
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		if err != nil {
+			t.Fatalf("EnsureParent under concurrency: %v", err)
+		}
+	}
+	if info, err := os.Stat(shared); err != nil || !info.IsDir() {
+		t.Fatalf("shared dir not created: info=%v err=%v", info, err)
 	}
 }
 

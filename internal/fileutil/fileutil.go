@@ -98,7 +98,18 @@ func ensureDir(dir string) error {
 	if m, ok := sensitiveDirModes[filepath.Base(dir)]; ok {
 		mode = m
 	}
-	return os.Mkdir(dir, mode)
+	if err := os.Mkdir(dir, mode); err != nil {
+		// Tolerate the race where a concurrent goroutine created dir between
+		// our Lstat and Mkdir: EEXIST here is success, not failure.
+		if os.IsExist(err) {
+			if _, ok := sensitiveDirModes[filepath.Base(dir)]; ok {
+				_ = os.Chmod(dir, mode)
+			}
+			return nil
+		}
+		return err
+	}
+	return nil
 }
 
 // Backup copies path to path.dots-bak (preserving symlinks as symlinks).
