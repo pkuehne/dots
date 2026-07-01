@@ -100,12 +100,16 @@ func ensureDir(dir string) error {
 	}
 	if err := os.Mkdir(dir, mode); err != nil {
 		// Tolerate the race where a concurrent goroutine created dir between
-		// our Lstat and Mkdir: EEXIST here is success, not failure.
+		// our Lstat and Mkdir: EEXIST is only success if the entry now present
+		// is actually a directory. A non-directory (or dangling/non-dir
+		// symlink) that appeared in the meantime is still a real error.
 		if os.IsExist(err) {
-			if _, ok := sensitiveDirModes[filepath.Base(dir)]; ok {
-				_ = os.Chmod(dir, mode)
+			if info, serr := os.Stat(dir); serr == nil && info.IsDir() {
+				if _, ok := sensitiveDirModes[filepath.Base(dir)]; ok {
+					_ = os.Chmod(dir, mode)
+				}
+				return nil
 			}
-			return nil
 		}
 		return err
 	}

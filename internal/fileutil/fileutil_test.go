@@ -102,16 +102,22 @@ func TestEnsureParent_ConcurrentSharedDir(t *testing.T) {
 
 	const workers = 32
 	errs := make(chan error, workers*len(paths))
+	// Release all goroutines at once so they contend on the same Mkdir,
+	// making the EEXIST race reproduce deterministically rather than relying
+	// on scheduler timing.
+	start := make(chan struct{})
 	var wg sync.WaitGroup
 	for i := 0; i < workers; i++ {
 		for _, p := range paths {
 			wg.Add(1)
 			go func(p string) {
 				defer wg.Done()
+				<-start
 				errs <- fileutil.EnsureParent(p)
 			}(p)
 		}
 	}
+	close(start)
 	wg.Wait()
 	close(errs)
 	for err := range errs {
