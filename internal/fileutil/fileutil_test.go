@@ -3,6 +3,7 @@ package fileutil_test
 import (
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 
 	"github.com/pkuehne/dots/internal/fileutil"
@@ -86,6 +87,71 @@ func TestEnsureParent_Idempotent(t *testing.T) {
 	}
 	if err := fileutil.EnsureParent(path); err != nil {
 		t.Fatalf("second call: %v", err)
+	}
+}
+
+func TestEnsureParent_ConcurrentSharedDir(t *testing.T) {
+	// Two files sharing a not-yet-existing parent, created concurrently:
+	// the EEXIST race in os.Mkdir must be tolerated (issue #45).
+	base := t.TempDir()
+	shared := filepath.Join(base, "config", "smug")
+	paths := []string{
+		filepath.Join(shared, "dashboard.yml"),
+		filepath.Join(shared, "dotfiles.yml"),
+	}
+
+	const workers = 32
+	errs := make(chan error, workers*len(paths))
+	// Release all goroutines at once so they contend on the same Mkdir,
+	// making the EEXIST race reproduce deterministically rather than relying
+	// on scheduler timing.
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	for i := 0; i < workers; i++ {
+		for _, p := range paths {
+			wg.Add(1)
+			go func(p string) {
+				defer wg.Done()
+				<-start
+				errs <- fileutil.EnsureParent(p)
+			}(p)
+		}
+	}
+	close(start)
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		if err != nil {
+			t.Fatalf("EnsureParent under concurrency: %v", err)
+		}
+	}
+	if info, err := os.Stat(shared); err != nil || !info.IsDir() {
+		t.Fatalf("shared dir not created: info=%v err=%v", info, err)
+	}
+}
+
+func TestEnsureParent_SymlinkedSensitiveDirNotChmodded(t *testing.T) {
+	// A symlink whose name matches a sensitive dir (e.g. ~/.ssh -> elsewhere)
+	// is a valid parent, but EnsureParent must not chmod the symlink target:
+	// that would change permissions outside the intended path.
+	base := t.TempDir()
+	real := filepath.Join(base, "store")
+	if err := os.Mkdir(real, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(base, ".ssh")
+	if err := os.Symlink(real, link); err != nil {
+		t.Fatal(err)
+	}
+	if err := fileutil.EnsureParent(filepath.Join(link, "config")); err != nil {
+		t.Fatalf("EnsureParent through symlinked sensitive dir: %v", err)
+	}
+	info, err := os.Stat(real)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := info.Mode().Perm(); got != 0o755 {
+		t.Fatalf("symlink target perms changed: got %o, want 0755", got)
 	}
 }
 
