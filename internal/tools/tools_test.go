@@ -923,6 +923,21 @@ func TestSafeInstallDir(t *testing.T) {
 	})
 }
 
+func TestValidPlainName(t *testing.T) {
+	ok := []string{"nvim", "go", "ripgrep-1.2"}
+	for _, name := range ok {
+		if err := validPlainName(name); err != nil {
+			t.Errorf("validPlainName(%q) = %v, want nil", name, err)
+		}
+	}
+	bad := []string{"", ".", "..", "../foo", "sub/bin", `sub\bin`, "/usr/bin/nvim"}
+	for _, name := range bad {
+		if err := validPlainName(name); err == nil {
+			t.Errorf("validPlainName(%q) = nil, want error", name)
+		}
+	}
+}
+
 // ── Check ─────────────────────────────────────────────────────────────────────
 
 func TestCheck_InstalledTool(t *testing.T) {

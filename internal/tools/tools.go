@@ -434,6 +434,12 @@ func installGitHub(tool config.Tool, inst config.ToolInstall, binDir string, tas
 	if binaryName == "" {
 		binaryName = tool.Name
 	}
+	// binaryName becomes the symlink/copy destination under binDir. Reject
+	// anything but a plain filename so a stray "binary" value (absolute, or
+	// containing a path separator like ../foo) cannot escape binDir.
+	if err := validPlainName(binaryName); err != nil {
+		return "", err
+	}
 	dest := filepath.Join(binDir, binaryName)
 
 	task.Stage("installing")
@@ -521,13 +527,37 @@ func installArchiveTree(archivePath string, inst config.ToolInstall, binaryName,
 		os.RemoveAll(staging)
 		return errs.NewTool(fmt.Sprintf("cannot move staged tree into %s", installDir), err.Error())
 	}
-	os.RemoveAll(backup)
 
+	// Keep the backup until the symlink is in place: if locating the binary or
+	// creating the symlink fails now (e.g. symlinks unsupported), restore the
+	// prior install so the tool is not left broken.
 	src, err := locateBinary(installDir, binaryName, inst.BinaryPath)
+	if err == nil {
+		err = symlinkBinary(src, dest)
+	}
 	if err != nil {
+		os.RemoveAll(installDir)
+		if hadPrior {
+			_ = os.Rename(backup, installDir) // roll back
+		}
 		return err
 	}
-	return symlinkBinary(src, dest)
+	os.RemoveAll(backup)
+	return nil
+}
+
+// validPlainName rejects a configured binary name that is not a bare filename —
+// absolute, empty, "." / "..", or containing a path separator. Such a value
+// would let filepath.Join(binDir, name) resolve outside binDir.
+func validPlainName(name string) error {
+	if name == "" || name == "." || name == ".." ||
+		filepath.IsAbs(name) || strings.ContainsAny(name, `/\`) {
+		return errs.NewTool(
+			fmt.Sprintf("invalid binary name %q", name),
+			"'binary' must be a plain filename (no path separators, not absolute).",
+		)
+	}
+	return nil
 }
 
 // safeInstallDir expands and validates a configured install_dir before it is
@@ -567,16 +597,23 @@ func safeInstallDir(configured, binDir string) (string, error) {
 }
 
 // symlinkBinary points dest at src, replacing any existing file or symlink so
-// the operation is idempotent.
+// the operation is idempotent. The new link is created under a temporary name
+// and renamed over dest, so a failed os.Symlink never leaves dest missing when
+// it previously existed.
 func symlinkBinary(src, dest string) error {
 	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
 		return errs.NewTool(fmt.Sprintf("cannot create bin dir %s", filepath.Dir(dest)), err.Error())
 	}
-	if err := os.Remove(dest); err != nil && !os.IsNotExist(err) {
-		return errs.NewTool(fmt.Sprintf("cannot replace existing %s", dest), err.Error())
+	tmp := dest + ".dots-link"
+	if err := os.Remove(tmp); err != nil && !os.IsNotExist(err) {
+		return errs.NewTool(fmt.Sprintf("cannot clear temporary link %s", tmp), err.Error())
 	}
-	if err := os.Symlink(src, dest); err != nil {
-		return errs.NewTool(fmt.Sprintf("cannot symlink %s -> %s", dest, src), err.Error())
+	if err := os.Symlink(src, tmp); err != nil {
+		return errs.NewTool(fmt.Sprintf("cannot symlink %s -> %s", tmp, src), err.Error())
+	}
+	if err := os.Rename(tmp, dest); err != nil {
+		os.Remove(tmp)
+		return errs.NewTool(fmt.Sprintf("cannot move symlink into place at %s", dest), err.Error())
 	}
 	return nil
 }
