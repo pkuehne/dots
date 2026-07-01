@@ -237,7 +237,7 @@ var userSnippetPrefixRe = regexp.MustCompile(`^(\d+)`)
 // snippetCounts tallies how many snippets/rc files were written versus left
 // unchanged, so the Shell section can print a summary line like the file, repo
 // and tool sections instead of going silent on an idempotent re-run.
-type snippetCounts struct{ wrote, unchanged int }
+type snippetCounts struct{ wrote, unchanged, removed int }
 
 func (c *snippetCounts) add(changed bool) {
 	if changed {
@@ -330,10 +330,21 @@ func Apply(cfg config.Config, dryRun, summary bool, sec *ui.Section) error {
 	if err := writeSnippets(cfg, dryRun, summary, sec, &c); err != nil {
 		return err
 	}
+	if err := cleanStale(cfg, dryRun, sec, &c); err != nil {
+		return err
+	}
 	if err := insertSourceLine(cfg, dryRun, summary, sec, &c); err != nil {
 		return err
 	}
-	sec.Summary(ui.ChangeTally(c.wrote, c.unchanged, dryRun))
+	summaryLine := ui.ChangeTally(c.wrote, c.unchanged, dryRun)
+	if c.removed > 0 {
+		verb := "removed"
+		if dryRun {
+			verb = "to remove"
+		}
+		summaryLine = fmt.Sprintf("%s, %d %s", summaryLine, c.removed, verb)
+	}
+	sec.Summary(summaryLine)
 	return nil
 }
 
@@ -445,27 +456,20 @@ func Assembled(cfg config.Config) (string, error) {
 	return sb.String(), nil
 }
 
-// Clean removes snippet files from shell.d that are not expected given the
-// current config. With dryRun=true no files are removed.
-func Clean(cfg config.Config, dryRun bool) error {
-	dir := fileutil.Expand(cfg.Shell.Dir)
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil
-		}
-		return err
-	}
-
+// expectedSnippets returns the set of snippet filenames that the current config
+// should produce in shell.d. staleSnippets (and thus both Clean and the cleanup
+// baked into Apply) derives its keep-list from this, so the standalone `dots
+// shell clean` command and `dots apply` agree on what counts as stale.
+func expectedSnippets(cfg config.Config) map[string]bool {
 	expected := map[string]bool{
 		"010-env.sh":  true,
 		"020-path.sh": true,
 	}
 	// Keep in sync with applyPresets in cmd/dots/commands.go, which writes a
 	// per-shell 030-fzf.zsh and 030-fzf.bash into shell.d when the fzf preset
-	// is enabled and the shell is managed. Without these entries, Clean would
+	// is enabled and the shell is managed. Without these entries, cleanup would
 	// delete the presets that apply just wrote. (An older 030-fzf.sh is
-	// intentionally absent so Clean removes it on migration.)
+	// intentionally absent so it is removed on migration.)
 	if cfg.Presets.Fzf && cfg.Shell.Managed {
 		expected["030-fzf.zsh"] = true
 		expected["030-fzf.bash"] = true
@@ -486,23 +490,74 @@ func Clean(cfg config.Config, dryRun bool) error {
 			expected[n] = true
 		}
 	}
+	return expected
+}
 
-	removed := 0
+// staleSnippets returns the sorted names of snippet files present in shell.d
+// that the current config no longer expects (e.g. a 050-{tool}.sh left behind
+// after a tool's shell directive was removed from dots.toml).
+func staleSnippets(cfg config.Config) ([]string, error) {
+	dir := fileutil.Expand(cfg.Shell.Dir)
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	expected := expectedSnippets(cfg)
+	var stale []string
 	for _, e := range entries {
 		name := e.Name()
 		if e.IsDir() || !isSnippetFile(name) || expected[name] {
 			continue
 		}
+		stale = append(stale, name)
+	}
+	sort.Strings(stale)
+	return stale, nil
+}
+
+// Clean removes snippet files from shell.d that are not expected given the
+// current config. With dryRun=true no files are removed. It backs the standalone
+// `dots shell clean` command; Apply runs the same cleanup as part of every apply.
+func Clean(cfg config.Config, dryRun bool) error {
+	stale, err := staleSnippets(cfg)
+	if err != nil {
+		return err
+	}
+	dir := fileutil.Expand(cfg.Shell.Dir)
+	for _, name := range stale {
 		if !dryRun {
 			if err := os.Remove(filepath.Join(dir, name)); err != nil {
 				return err
 			}
 		}
 		ui.StatusLine("removed", name, dryRun)
-		removed++
 	}
-	if removed == 0 {
+	if len(stale) == 0 {
 		ui.Note("No stale snippets found.")
+	}
+	return nil
+}
+
+// cleanStale removes stale snippets as part of Apply, reporting each removal as
+// a row under sec and tallying it in c so the Shell section's summary reflects
+// the deletions. With dryRun=true no files are removed.
+func cleanStale(cfg config.Config, dryRun bool, sec *ui.Section, c *snippetCounts) error {
+	stale, err := staleSnippets(cfg)
+	if err != nil {
+		return err
+	}
+	dir := fileutil.Expand(cfg.Shell.Dir)
+	for _, name := range stale {
+		if !dryRun {
+			if err := os.Remove(filepath.Join(dir, name)); err != nil {
+				return err
+			}
+		}
+		sec.Status("removed", filepath.Join(dir, name), dryRun)
+		c.removed++
 	}
 	return nil
 }
