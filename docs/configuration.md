@@ -1,6 +1,7 @@
 # Configuration Reference
 
-See the spec for the full annotated `dots.toml` schema. This document provides a quick reference.
+Run `dots sample` for a fully-commented `dots.toml` documenting every section and
+option inline. This document provides a quick reference.
 
 ## Sections
 
