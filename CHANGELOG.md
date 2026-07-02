@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.5.0](https://github.com/pkuehne/dots/compare/v1.4.0...v1.5.0) (2026-07-02)
+
+
+### Features
+
+* add `dots sample` command printing an annotated dots.toml ([#49](https://github.com/pkuehne/dots/issues/49)) ([d2c7085](https://github.com/pkuehne/dots/commit/d2c7085c8efe5bc90ec50a8eb9cfd8a46df91436))
+* dynamic shell completions + auto-install for managed zsh ([#50](https://github.com/pkuehne/dots/issues/50)) ([6ace834](https://github.com/pkuehne/dots/commit/6ace834e9acab06448c3c16dcc0b6c464a343d4f))
+* install full archive tree with install_dir ([#44](https://github.com/pkuehne/dots/issues/44)) ([bad0fd6](https://github.com/pkuehne/dots/commit/bad0fd6e81964104f49659023a029060b47e78ab))
+
+
+### Bug Fixes
+
+* remove stale shell snippets on apply ([#47](https://github.com/pkuehne/dots/issues/47)) ([668f2e1](https://github.com/pkuehne/dots/commit/668f2e10f5fcfd7edd15eb3cbb47130d2f4adcbb))
+* tolerate mkdir EEXIST race in concurrent deploy ([#48](https://github.com/pkuehne/dots/issues/48)) ([2023890](https://github.com/pkuehne/dots/commit/2023890daff69e07d5e932d63062568a208612b1))
+
 ## [1.4.0](https://github.com/pkuehne/dots/compare/v1.3.0...v1.4.0) (2026-06-25)
 
 
