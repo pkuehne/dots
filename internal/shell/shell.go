@@ -405,7 +405,7 @@ func writeSnippets(cfg config.Config, dryRun, summary bool, sec *ui.Section, c *
 			snippets[name] = GenerateToolSnippet(tool, shellName)
 		}
 	}
-	if cfg.Shell.Completions {
+	if cfg.Shell.Managed && cfg.Shell.Completions {
 		snippets[completionSnippetName] = GenerateCompletionSnippet()
 	}
 	if custom, ok, err := GenerateCustomSnippet(cfg.RepoRoot); err != nil {
@@ -504,8 +504,9 @@ func expectedSnippets(cfg config.Config) map[string]bool {
 	}
 	// Keep in sync with writeSnippets: the auto-installed zsh completion snippet
 	// is written when the shell is managed and completions are enabled. Without
-	// this entry, cleanup would delete the snippet apply just wrote.
-	if cfg.Shell.Completions {
+	// this entry, cleanup would delete the snippet apply just wrote; gating on
+	// Managed lets `dots shell clean` remove a stale snippet once managed is off.
+	if cfg.Shell.Managed && cfg.Shell.Completions {
 		expected[completionSnippetName] = true
 	}
 	plats := platform.Platforms()

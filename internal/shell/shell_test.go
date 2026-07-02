@@ -449,7 +449,7 @@ func TestWriteSnippetsCompletionSnippet(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	dir := t.TempDir()
 	cfg := config.Config{
-		Shell: config.ShellConfig{Dir: dir, Completions: true},
+		Shell: config.ShellConfig{Dir: dir, Managed: true, Completions: true},
 		Env:   config.EnvConfig{Vars: map[string]string{}},
 	}
 
@@ -473,7 +473,7 @@ func TestWriteSnippetsCompletionOptOut(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	dir := t.TempDir()
 	cfg := config.Config{
-		Shell: config.ShellConfig{Dir: dir, Completions: false},
+		Shell: config.ShellConfig{Dir: dir, Managed: true, Completions: false},
 		Env:   config.EnvConfig{Vars: map[string]string{}},
 	}
 
@@ -495,7 +495,7 @@ func TestCleanRemovesCompletionSnippetWhenDisabled(t *testing.T) {
 		t.Fatal(err)
 	}
 	cfg := config.Config{
-		Shell: config.ShellConfig{Dir: dir, Completions: false},
+		Shell: config.ShellConfig{Dir: dir, Managed: true, Completions: false},
 		Env:   config.EnvConfig{Vars: map[string]string{}},
 	}
 	if err := Clean(cfg, false); err != nil {
