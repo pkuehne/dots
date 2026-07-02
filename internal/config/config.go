@@ -20,12 +20,13 @@ type MetaConfig struct {
 
 // ShellConfig holds [shell] settings.
 type ShellConfig struct {
-	Managed bool     `toml:"managed"`
-	Login   bool     `toml:"login"`
-	Zshrc   string   `toml:"zshrc"`
-	Bashrc  string   `toml:"bashrc"`
-	Dir     string   `toml:"dir"`
-	Path    []string `toml:"path"`
+	Managed     bool     `toml:"managed"`
+	Login       bool     `toml:"login"`
+	Zshrc       string   `toml:"zshrc"`
+	Bashrc      string   `toml:"bashrc"`
+	Dir         string   `toml:"dir"`
+	Path        []string `toml:"path"`
+	Completions bool     `toml:"completions"` // install dots' own zsh completions (default true)
 }
 
 // GitConfig holds [git] settings.
@@ -187,7 +188,7 @@ const supportedSchemaVersion = 1
 func defaults() Config {
 	return Config{
 		Meta:        MetaConfig{Version: 1, DefaultMode: "symlink"},
-		Shell:       ShellConfig{Zshrc: "~/.zshrc", Bashrc: "~/.bashrc", Dir: "~/.config/dots/shell.d"},
+		Shell:       ShellConfig{Zshrc: "~/.zshrc", Bashrc: "~/.bashrc", Dir: "~/.config/dots/shell.d", Completions: true},
 		Git:         GitConfig{DefaultBranch: "main"},
 		ToolsConfig: ToolsConfig{BinDir: "~/.local/bin"},
 		Secrets:     SecretsConfig{Identity: "~/.config/dots/key.txt"},
@@ -246,12 +247,13 @@ func Load(repoRoot, profile string) (Config, error) {
 
 	if s, ok := merged["shell"].(map[string]any); ok {
 		cfg.Shell = ShellConfig{
-			Managed: boolean(s, "managed", false),
-			Login:   boolean(s, "login", false),
-			Zshrc:   str(s, "zshrc", "~/.zshrc"),
-			Bashrc:  str(s, "bashrc", "~/.bashrc"),
-			Dir:     str(s, "dir", "~/.config/dots/shell.d"),
-			Path:    strSlice(s, "path"),
+			Managed:     boolean(s, "managed", false),
+			Login:       boolean(s, "login", false),
+			Zshrc:       str(s, "zshrc", "~/.zshrc"),
+			Bashrc:      str(s, "bashrc", "~/.bashrc"),
+			Dir:         str(s, "dir", "~/.config/dots/shell.d"),
+			Path:        strSlice(s, "path"),
+			Completions: boolean(s, "completions", true),
 		}
 	}
 	if g, ok := merged["git"].(map[string]any); ok {

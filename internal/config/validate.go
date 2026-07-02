@@ -59,7 +59,7 @@ var (
 		"tool":     kTableArray, "file": kTableArray, "repo": kTableArray,
 	}
 	metaSpec      = map[string]valKind{"version": kScalar, "default_mode": kScalar}
-	shellSpec     = map[string]valKind{"managed": kScalar, "login": kScalar, "zshrc": kScalar, "bashrc": kScalar, "dir": kScalar, "path": kArray}
+	shellSpec     = map[string]valKind{"managed": kScalar, "login": kScalar, "zshrc": kScalar, "bashrc": kScalar, "dir": kScalar, "path": kArray, "completions": kScalar}
 	gitSpec       = map[string]valKind{"managed": kScalar, "name": kScalar, "email": kScalar, "editor": kScalar, "default_branch": kScalar, "pull_rebase": kScalar, "signingkey": kScalar, "sign": kScalar}
 	sshSpec       = map[string]valKind{"managed": kScalar, "host": kTableArray}
 	sshHostSpec   = map[string]valKind{"host": kScalar, "only": kArray} // extra keys allowed: free-form SSH options

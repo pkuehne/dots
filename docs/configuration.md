@@ -224,3 +224,29 @@ as up to date.
 
 `dots repos status` shows `≠ ref <x>` when HEAD has drifted off a pinned ref,
 alongside the existing `missing`, `dirty`, and `behind N` states.
+
+## Shell completions
+
+`dots completion <shell>` prints a completion script for `bash`, `zsh`, `fish`,
+or `powershell`. The completions are dynamic: argument positions that take a
+name — `dots tools install <tab>`, `dots repos update <tab>`,
+`dots presets show <tab>`, `--profile <tab>`, `--tag <tab>` — expand to the
+matching names from your `dots.toml`, each with its description. Completion UIs
+that render descriptions (such as [fzf-tab](https://github.com/Aloxaf/fzf-tab))
+display them directly.
+
+To install manually for zsh:
+
+```sh
+dots completion zsh > "${fpath[1]}/_dots"   # then restart your shell
+```
+
+When dots manages your shell (`[shell] managed = true`), it installs the zsh
+completions automatically via a `shell.d` snippet (`090-dots-completion.zsh`) —
+no manual step needed. The snippet re-derives from the binary on each shell
+start, so completions never go stale. Set `[shell] completions = false` to opt
+out.
+
+| Key | Meaning |
+|-----|---------|
+| `completions` | Auto-install dots' zsh completions when the shell is managed (default `true`). |

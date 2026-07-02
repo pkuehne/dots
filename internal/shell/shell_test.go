@@ -445,6 +445,67 @@ func TestWriteSnippets(t *testing.T) {
 	}
 }
 
+func TestWriteSnippetsCompletionSnippet(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	dir := t.TempDir()
+	cfg := config.Config{
+		Shell: config.ShellConfig{Dir: dir, Completions: true},
+		Env:   config.EnvConfig{Vars: map[string]string{}},
+	}
+
+	if err := WriteSnippets(cfg, false, nil); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "090-dots-completion.zsh"))
+	if err != nil {
+		t.Fatalf("expected completion snippet to be written: %v", err)
+	}
+	body := string(data)
+	if !strings.HasPrefix(body, GeneratedHeader) {
+		t.Errorf("completion snippet must start with the generated header, got:\n%s", body)
+	}
+	if !strings.Contains(body, "source <(dots completion zsh)") {
+		t.Errorf("completion snippet must source dots completions, got:\n%s", body)
+	}
+}
+
+func TestWriteSnippetsCompletionOptOut(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	dir := t.TempDir()
+	cfg := config.Config{
+		Shell: config.ShellConfig{Dir: dir, Completions: false},
+		Env:   config.EnvConfig{Vars: map[string]string{}},
+	}
+
+	if err := WriteSnippets(cfg, false, nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "090-dots-completion.zsh")); !os.IsNotExist(err) {
+		t.Errorf("completion snippet must not be written when completions are disabled")
+	}
+}
+
+func TestCleanRemovesCompletionSnippetWhenDisabled(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	dir := t.TempDir()
+	// A stale completion snippet left from when completions were enabled must be
+	// removed once the user opts out — expectedSnippets gates on Completions.
+	name := filepath.Join(dir, "090-dots-completion.zsh")
+	if err := os.WriteFile(name, []byte("stale"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg := config.Config{
+		Shell: config.ShellConfig{Dir: dir, Completions: false},
+		Env:   config.EnvConfig{Vars: map[string]string{}},
+	}
+	if err := Clean(cfg, false); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(name); !os.IsNotExist(err) {
+		t.Errorf("stale completion snippet must be cleaned when completions are disabled")
+	}
+}
+
 // ── toolSnippetFiles / per-tool snippet shapes ───────────────────────────────
 
 func TestWriteSnippetsSkipsToolsWithoutShellConfig(t *testing.T) {

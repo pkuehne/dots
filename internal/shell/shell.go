@@ -169,6 +169,31 @@ func GenerateToolSnippet(tool config.Tool, shellName string) string {
 	return strings.Join(lines, "\n") + "\n"
 }
 
+// completionSnippetName is the zsh-only snippet that loads dots' own shell
+// completions. It sits in the 090–098 completions range and uses the .zsh
+// extension so only the zsh bootstrapper sources it (bash globs *.bash).
+const completionSnippetName = "090-dots-completion.zsh"
+
+// GenerateCompletionSnippet returns the content of 090-dots-completion.zsh,
+// which registers dots' zsh completions (and thus fzf-tab candidates) at shell
+// startup. It self-initializes the completion system so it works regardless of
+// whether the user's rc has already run compinit, and re-derives from the binary
+// so it never goes stale. `dots completion` skips config loading, so this is
+// safe to source even outside a dotfiles repo.
+func GenerateCompletionSnippet() string {
+	lines := []string{
+		GeneratedHeader,
+		"# Source: [shell] completions",
+		"# Regenerate: dots apply",
+		"",
+		"command -v dots >/dev/null 2>&1 || return",
+		"# Ensure the completion system is initialized before compdef runs.",
+		"(( $+functions[compdef] )) || { autoload -Uz compinit && compinit -C; }",
+		"source <(dots completion zsh)",
+	}
+	return strings.Join(lines, "\n") + "\n"
+}
+
 // GenerateCustomSnippet reads files/.zshrc from repoRoot and wraps it in a
 // generated-file header. Returns the content, true if found, and any error.
 func GenerateCustomSnippet(repoRoot string) (string, bool, error) {
@@ -380,6 +405,9 @@ func writeSnippets(cfg config.Config, dryRun, summary bool, sec *ui.Section, c *
 			snippets[name] = GenerateToolSnippet(tool, shellName)
 		}
 	}
+	if cfg.Shell.Completions {
+		snippets[completionSnippetName] = GenerateCompletionSnippet()
+	}
 	if custom, ok, err := GenerateCustomSnippet(cfg.RepoRoot); err != nil {
 		return err
 	} else if ok {
@@ -473,6 +501,12 @@ func expectedSnippets(cfg config.Config) map[string]bool {
 	if cfg.Presets.Fzf && cfg.Shell.Managed {
 		expected["030-fzf.zsh"] = true
 		expected["030-fzf.bash"] = true
+	}
+	// Keep in sync with writeSnippets: the auto-installed zsh completion snippet
+	// is written when the shell is managed and completions are enabled. Without
+	// this entry, cleanup would delete the snippet apply just wrote.
+	if cfg.Shell.Completions {
+		expected[completionSnippetName] = true
 	}
 	plats := platform.Platforms()
 	for _, tool := range cfg.Tools {
