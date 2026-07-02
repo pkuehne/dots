@@ -22,8 +22,15 @@ for arg in "$@"; do
   case "$arg" in
     --wait) wait=true ;;
     --comments) comments=true ;;
-    [0-9]*) pr="$arg" ;;
-    *) echo "unknown arg: $arg" >&2; exit 2 ;;
+    *)
+      # PR must be strictly numeric — it is interpolated into the GraphQL query.
+      if [[ "$arg" =~ ^[0-9]+$ ]]; then
+        pr="$arg"
+      else
+        echo "unknown arg: $arg" >&2
+        exit 2
+      fi
+      ;;
   esac
 done
 
@@ -37,8 +44,25 @@ fi
 
 if $wait; then
   echo "== waiting for CI on PR #$pr =="
-  # --watch exits non-zero if any check fails; don't let that abort the snapshot.
-  gh pr checks "$pr" --repo "$REPO" --watch --fail-fast >/dev/null 2>&1 || true
+  # Right after a push the checks may not be registered yet, and
+  # `gh pr checks --watch` exits immediately in that window. Poll until
+  # checks appear and settle, re-watching to catch workflows (CodeQL, etc.)
+  # that register late. Bounded so a stuck check can't hang forever.
+  for _ in $(seq 1 60); do
+    status=$(gh pr checks "$pr" --repo "$REPO" 2>/dev/null || true)
+    if [[ -z "$status" ]]; then
+      sleep 5          # no checks registered yet
+      continue
+    fi
+    if grep -qiE '(pending|queued|in_progress)' <<<"$status"; then
+      # --watch blocks until checks settle; it exits non-zero if any check
+      # fails, so swallow that rather than aborting the snapshot below.
+      gh pr checks "$pr" --repo "$REPO" --watch --fail-fast >/dev/null 2>&1 || true
+      sleep 3          # let late-registering workflows show up, then re-check
+      continue
+    fi
+    break              # all checks present and settled
+  done
 fi
 
 echo "== CI checks (PR #$pr) =="
