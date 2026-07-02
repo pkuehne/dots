@@ -79,6 +79,26 @@ func TestEnsureParent_SensitiveDir(t *testing.T) {
 	}
 }
 
+func TestEnsureParent_TightensExistingSensitiveDir(t *testing.T) {
+	// An already-present sensitive dir with loose perms must be tightened,
+	// and a chmod failure must surface rather than be reported as success.
+	base := t.TempDir()
+	ssh := filepath.Join(base, ".ssh")
+	if err := os.Mkdir(ssh, 0o777); err != nil {
+		t.Fatal(err)
+	}
+	if err := fileutil.EnsureParent(filepath.Join(ssh, "config")); err != nil {
+		t.Fatalf("EnsureParent: %v", err)
+	}
+	info, err := os.Stat(ssh)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0o700 {
+		t.Errorf("existing .ssh not tightened: got %o, want 700", info.Mode().Perm())
+	}
+}
+
 func TestEnsureParent_Idempotent(t *testing.T) {
 	base := t.TempDir()
 	path := filepath.Join(base, "sub", "file.txt")
