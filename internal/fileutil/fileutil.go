@@ -107,7 +107,13 @@ func ensureDir(dir string) error {
 func existingDirOK(dir string) (err error, ok bool) {
 	info, lerr := os.Lstat(dir)
 	if lerr != nil {
-		return nil, false
+		// Only a genuine "not there" means we should go create dir. Any other
+		// Lstat failure (EACCES, ENOTDIR, transient IO) is a real error worth
+		// surfacing rather than masking behind a later Mkdir attempt.
+		if os.IsNotExist(lerr) {
+			return nil, false
+		}
+		return lerr, true
 	}
 	// Resolve symlinks: a symlink pointing at a directory is a valid parent.
 	// Only a non-directory (or a dangling/non-dir symlink) is an error. Using

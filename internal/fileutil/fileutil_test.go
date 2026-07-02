@@ -155,6 +155,21 @@ func TestEnsureParent_SymlinkedSensitiveDirNotChmodded(t *testing.T) {
 	}
 }
 
+func TestEnsureParent_LstatErrorSurfaces(t *testing.T) {
+	// A regular file partway up the path makes Lstat of a would-be parent fail
+	// with ENOTDIR (not IsNotExist). That must surface as an error rather than
+	// being silently treated as "absent" and masked by a later Mkdir attempt.
+	base := t.TempDir()
+	file := filepath.Join(base, "afile")
+	if err := os.WriteFile(file, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// dir = base/afile/sub — Lstat(base/afile/sub) returns ENOTDIR.
+	if err := fileutil.EnsureParent(filepath.Join(file, "sub", "child")); err == nil {
+		t.Fatal("expected error when a file sits in the parent path, got nil")
+	}
+}
+
 func TestEnsureParent_SymlinkedDir(t *testing.T) {
 	base := t.TempDir()
 	// A real directory, and a symlink pointing at it standing in for the
