@@ -34,6 +34,9 @@ dots upgrade --check   # just report whether a newer version exists
 # Scaffold a new dotfiles repo
 dots init ~/dotfiles
 
+# See every config option, fully commented, to build out dots.toml
+dots sample > ~/dotfiles/dots.toml
+
 # Copy existing dotfiles in
 cp ~/.zshrc ~/dotfiles/files/
 cp ~/.gitconfig ~/dotfiles/files/
@@ -198,6 +201,7 @@ Files ending in `.age` under `files/` are decrypted automatically during apply.
 | Command | Description |
 |---------|-------------|
 | `dots init [dir]` | Scaffold a new dots repository |
+| `dots sample` | Print a fully-commented example dots.toml (every option, documented) |
 | `dots upgrade` | Upgrade the dots binary to the latest release |
 | `dots upgrade --check` | Report whether a newer dots release is available |
 | `dots apply` | Deploy files, generate configs, clone repos |
