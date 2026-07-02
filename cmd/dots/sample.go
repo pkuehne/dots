@@ -140,16 +140,17 @@ pull_rebase = true
 [ssh]
 managed = true
 
-# One block per host. "host" is the Host pattern; every other key is written
-# verbatim as an SSH option (so any valid ssh_config keyword works — port,
-# user, identityfile, forwardagent, proxyjump, …). Booleans render as yes/no
-# and integers pass through, so port = 2222 and forwardagent = true both
-# work naturally.
+# One block per host. "host" is the Host pattern; every other key becomes an
+# SSH option. Write keys in snake_case — dots maps them to the canonical
+# ssh_config keyword (identity_file → IdentityFile, forward_agent → ForwardAgent,
+# proxy_jump → ProxyJump, …); an unknown key is TitleCased word-by-word. Booleans
+# render as yes/no and integers pass through, so port = 2222 and
+# forward_agent = true both work naturally.
 [[ssh.host]]
 host = "github.com"
 user = "git"
-identityfile = "~/.ssh/id_ed25519"
-forwardagent = false
+identity_file = "~/.ssh/id_ed25519"
+forward_agent = false
 
 [[ssh.host]]
 host = "bastion"
