@@ -103,7 +103,7 @@ func ensureDir(dir string) error {
 // pointing at a directory is accepted as a valid parent without altering the
 // target's permissions; a non-directory (or dangling/non-dir symlink) yields
 // an EEXIST error. Sensitive-dir permissions are applied only to a real
-// directory owned at this path.
+// directory at this path (not to a symlink's target).
 func existingDirOK(dir string) (err error, ok bool) {
 	info, lerr := os.Lstat(dir)
 	if lerr != nil {
