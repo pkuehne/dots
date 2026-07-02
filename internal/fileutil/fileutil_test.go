@@ -3,6 +3,7 @@ package fileutil_test
 import (
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 
 	"github.com/pkuehne/dots/internal/fileutil"
@@ -78,6 +79,26 @@ func TestEnsureParent_SensitiveDir(t *testing.T) {
 	}
 }
 
+func TestEnsureParent_TightensExistingSensitiveDir(t *testing.T) {
+	// An already-present sensitive dir with loose perms must be tightened,
+	// and a chmod failure must surface rather than be reported as success.
+	base := t.TempDir()
+	ssh := filepath.Join(base, ".ssh")
+	if err := os.Mkdir(ssh, 0o777); err != nil {
+		t.Fatal(err)
+	}
+	if err := fileutil.EnsureParent(filepath.Join(ssh, "config")); err != nil {
+		t.Fatalf("EnsureParent: %v", err)
+	}
+	info, err := os.Stat(ssh)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0o700 {
+		t.Errorf("existing .ssh not tightened: got %o, want 700", info.Mode().Perm())
+	}
+}
+
 func TestEnsureParent_Idempotent(t *testing.T) {
 	base := t.TempDir()
 	path := filepath.Join(base, "sub", "file.txt")
@@ -86,6 +107,86 @@ func TestEnsureParent_Idempotent(t *testing.T) {
 	}
 	if err := fileutil.EnsureParent(path); err != nil {
 		t.Fatalf("second call: %v", err)
+	}
+}
+
+func TestEnsureParent_ConcurrentSharedDir(t *testing.T) {
+	// Two files sharing a not-yet-existing parent, created concurrently:
+	// the EEXIST race in os.Mkdir must be tolerated (issue #45).
+	base := t.TempDir()
+	shared := filepath.Join(base, "config", "smug")
+	paths := []string{
+		filepath.Join(shared, "dashboard.yml"),
+		filepath.Join(shared, "dotfiles.yml"),
+	}
+
+	const workers = 32
+	errs := make(chan error, workers*len(paths))
+	// Release all goroutines at once so they contend on the same Mkdir,
+	// making the EEXIST race reproduce deterministically rather than relying
+	// on scheduler timing.
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	for i := 0; i < workers; i++ {
+		for _, p := range paths {
+			wg.Add(1)
+			go func(p string) {
+				defer wg.Done()
+				<-start
+				errs <- fileutil.EnsureParent(p)
+			}(p)
+		}
+	}
+	close(start)
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		if err != nil {
+			t.Fatalf("EnsureParent under concurrency: %v", err)
+		}
+	}
+	if info, err := os.Stat(shared); err != nil || !info.IsDir() {
+		t.Fatalf("shared dir not created: info=%v err=%v", info, err)
+	}
+}
+
+func TestEnsureParent_SymlinkedSensitiveDirNotChmodded(t *testing.T) {
+	// A symlink whose name matches a sensitive dir (e.g. ~/.ssh -> elsewhere)
+	// is a valid parent, but EnsureParent must not chmod the symlink target:
+	// that would change permissions outside the intended path.
+	base := t.TempDir()
+	real := filepath.Join(base, "store")
+	if err := os.Mkdir(real, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(base, ".ssh")
+	if err := os.Symlink(real, link); err != nil {
+		t.Fatal(err)
+	}
+	if err := fileutil.EnsureParent(filepath.Join(link, "config")); err != nil {
+		t.Fatalf("EnsureParent through symlinked sensitive dir: %v", err)
+	}
+	info, err := os.Stat(real)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := info.Mode().Perm(); got != 0o755 {
+		t.Fatalf("symlink target perms changed: got %o, want 0755", got)
+	}
+}
+
+func TestEnsureParent_LstatErrorSurfaces(t *testing.T) {
+	// A regular file partway up the path makes Lstat of a would-be parent fail
+	// with ENOTDIR (not IsNotExist). That must surface as an error rather than
+	// being silently treated as "absent" and masked by a later Mkdir attempt.
+	base := t.TempDir()
+	file := filepath.Join(base, "afile")
+	if err := os.WriteFile(file, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// dir = base/afile/sub — Lstat(base/afile/sub) returns ENOTDIR.
+	if err := fileutil.EnsureParent(filepath.Join(file, "sub", "child")); err == nil {
+		t.Fatal("expected error when a file sits in the parent path, got nil")
 	}
 }
 
