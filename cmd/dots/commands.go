@@ -1324,8 +1324,9 @@ func newToolsCmd() *cobra.Command {
 
 	var checkTag string
 	check := &cobra.Command{
-		Use:   "check [names...]",
-		Short: "Check which configured tools are installed",
+		Use:               "check [names...]",
+		Short:             "Check which configured tools are installed",
+		ValidArgsFunction: completeToolNames,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := checkKnownTools(globals.cfg.Tools, args); err != nil {
 				return err
@@ -1355,8 +1356,9 @@ func newToolsCmd() *cobra.Command {
 	var installDryRun, installForce bool
 	var installJobs int
 	install := &cobra.Command{
-		Use:   "install [names...]",
-		Short: "Install missing tools",
+		Use:               "install [names...]",
+		Short:             "Install missing tools",
+		ValidArgsFunction: completeToolNames,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := checkKnownTools(globals.cfg.Tools, args); err != nil {
 				return err
@@ -1427,8 +1429,9 @@ func newToolsCmd() *cobra.Command {
 	var updateDryRun bool
 	var updateJobs int
 	update := &cobra.Command{
-		Use:   "update [names...]",
-		Short: "Update version-tracked tools to their target version",
+		Use:               "update [names...]",
+		Short:             "Update version-tracked tools to their target version",
+		ValidArgsFunction: completeToolNames,
 		Long: "Reinstall github-method tools whose installed version differs from\n" +
 			"their target (a pinned `version`, or the latest release when version is\n" +
 			"unset or \"latest\"). Tools installed via a package manager are left to\n" +
@@ -1466,8 +1469,9 @@ func newToolsCmd() *cobra.Command {
 
 	var statusTag string
 	status := &cobra.Command{
-		Use:   "status [names...]",
-		Short: "Show installed vs target versions for tracked tools",
+		Use:               "status [names...]",
+		Short:             "Show installed vs target versions for tracked tools",
+		ValidArgsFunction: completeToolNames,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := checkKnownTools(globals.cfg.Tools, args); err != nil {
 				return err
@@ -1512,6 +1516,10 @@ func newToolsCmd() *cobra.Command {
 		},
 	}
 	list.Flags().StringVar(&listTag, "tag", "", "filter by tag")
+
+	for _, c := range []*cobra.Command{check, install, update, status, list} {
+		_ = c.RegisterFlagCompletionFunc("tag", completeToolTags)
+	}
 
 	cmd.AddCommand(check, install, update, status, list)
 	return cmd
@@ -1668,8 +1676,9 @@ func newReposCmd() *cobra.Command {
 	var cloneDryRun bool
 	var cloneJobs int
 	clone := &cobra.Command{
-		Use:   "clone [names...]",
-		Short: "Clone missing repos",
+		Use:               "clone [names...]",
+		Short:             "Clone missing repos",
+		ValidArgsFunction: completeRepoNames,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			sec := ui.NewSection("Repos")
 			sec.Header()
@@ -1686,8 +1695,9 @@ func newReposCmd() *cobra.Command {
 	var updateDryRun bool
 	var updateJobs int
 	update := &cobra.Command{
-		Use:   "update [names...]",
-		Short: "Update cloned repos",
+		Use:               "update [names...]",
+		Short:             "Update cloned repos",
+		ValidArgsFunction: completeRepoNames,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			prog := ui.NewProgress(updateDryRun)
 			results, err := repos.Update(globals.cfg, args, updateDryRun, prog, updateJobs)
@@ -1885,9 +1895,10 @@ func newPresetsCmd() *cobra.Command {
 	cmd := &cobra.Command{Use: "presets", Short: "Manage presets"}
 
 	show := &cobra.Command{
-		Use:   "show <preset>",
-		Short: "Print preset output",
-		Args:  cobra.ExactArgs(1),
+		Use:               "show <preset>",
+		Short:             "Print preset output",
+		Args:              cobra.ExactArgs(1),
+		ValidArgsFunction: completePresetNames,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			content, err := presets.Generate(args[0], globals.cfg)
 			if err != nil {
@@ -1900,9 +1911,10 @@ func newPresetsCmd() *cobra.Command {
 
 	var ejectDest string
 	eject := &cobra.Command{
-		Use:   "eject <preset>",
-		Short: "Eject preset to plain files",
-		Args:  cobra.ExactArgs(1),
+		Use:               "eject <preset>",
+		Short:             "Eject preset to plain files",
+		Args:              cobra.ExactArgs(1),
+		ValidArgsFunction: completePresetNames,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			name := args[0]
 			dest := ejectDest
@@ -1939,7 +1951,16 @@ To load completions in your current shell session:
 
 To install completions permanently, see your shell's documentation for
 the appropriate completions directory (e.g. /etc/bash_completion.d/ or
-~/.zsh/completions/).`,
+~/.zsh/completions/). For zsh, one common approach:
+
+  dots completion zsh > "${fpath[1]}/_dots"   # then restart zsh
+
+When dots manages your shell ([shell] managed = true) these zsh completions
+are installed automatically via a shell.d snippet — set
+[shell] completions = false to opt out.
+
+Completions include descriptions and dynamic candidates (tool, repo, preset,
+and profile names), so completion UIs such as fzf-tab display them directly.`,
 		Annotations: map[string]string{"skipConfig": "true"},
 		ValidArgs:   []string{"bash", "zsh", "fish", "powershell"},
 		Args:        cobra.ExactArgs(1),

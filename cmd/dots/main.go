@@ -59,6 +59,7 @@ func newRootCmd() *cobra.Command {
 
 	root.PersistentFlags().StringVar(&globals.profile, "profile", "", "activate a named profile")
 	root.PersistentFlags().StringVar(&globals.repo, "repo", "", "path to dotfiles repository root")
+	_ = root.RegisterFlagCompletionFunc("profile", completeProfileNames)
 
 	root.AddCommand(
 		newInitCmd(),
