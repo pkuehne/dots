@@ -129,7 +129,12 @@ func existingDirOK(dir string) (err error, ok bool) {
 		return &os.PathError{Op: "mkdir", Path: dir, Err: os.ErrExist}, true
 	}
 	if mode, ok := sensitiveDirModes[filepath.Base(dir)]; ok {
-		_ = os.Chmod(dir, mode)
+		// Surface chmod failures: silently leaving e.g. ~/.ssh world-readable
+		// while reporting success would violate this function's contract and
+		// weaken security.
+		if cerr := os.Chmod(dir, mode); cerr != nil {
+			return cerr, true
+		}
 	}
 	return nil, true
 }
