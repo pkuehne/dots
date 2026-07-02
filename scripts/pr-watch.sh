@@ -14,6 +14,12 @@
 set -euo pipefail
 
 REPO="${PR_WATCH_REPO:-pkuehne/dots}"
+# REPO is interpolated into the GraphQL query; require a clean OWNER/NAME form
+# so a malformed or quote-bearing PR_WATCH_REPO can't break or inject into it.
+if [[ ! "$REPO" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]]; then
+  echo "invalid repo (expected OWNER/NAME): $REPO" >&2
+  exit 2
+fi
 
 pr=""
 wait=false
@@ -77,7 +83,7 @@ echo
 echo "== unresolved review threads =="
 jq_thread='.data.repository.pullRequest.reviewThreads.nodes[]
   | select(.isResolved==false)
-  | "- [\(.path):\(.comments.nodes[-1].line // "?")] last=\(.comments.nodes[-1].author.login) @ \(.comments.nodes[-1].createdAt)"'
+  | "- [\(.path):\(.comments.nodes[0].line // "?")] last=\(.comments.nodes[0].author.login) @ \(.comments.nodes[0].createdAt)"'
 owner="${REPO%%/*}"
 name="${REPO##*/}"
 threads=$(gh api graphql -f query="
@@ -103,6 +109,6 @@ else
               comments(last: 1) { nodes { author { login } body } } } } } } }" \
       --jq '.data.repository.pullRequest.reviewThreads.nodes[]
         | select(.isResolved==false)
-        | "--- \(.path) (\(.comments.nodes[-1].author.login)) ---\n\(.comments.nodes[-1].body)\n"'
+        | "--- \(.path) (\(.comments.nodes[0].author.login)) ---\n\(.comments.nodes[0].body)\n"'
   fi
 fi
