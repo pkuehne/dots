@@ -15,6 +15,7 @@ import (
 
 	"github.com/pkuehne/dots/internal/config"
 	"github.com/pkuehne/dots/internal/ghrelease"
+	"github.com/pkuehne/dots/internal/platform"
 	"github.com/pkuehne/dots/internal/ui"
 	"github.com/ulikunitz/xz"
 )
@@ -963,5 +964,32 @@ func TestCheck_NoCheckFallsBackToLookPath(t *testing.T) {
 	results := Check(tools)
 	if len(results) != 1 || !results[0].Installed {
 		t.Errorf("expected sh to be found via LookPath, got: %v", results)
+	}
+}
+
+func TestOnlyMatches(t *testing.T) {
+	cases := []struct {
+		name string
+		only []string
+		plat string
+		want bool
+	}{
+		{"empty only matches anything", nil, "linux", true},
+		{"matching platform", []string{"darwin"}, "darwin", true},
+		{"non-matching platform", []string{"darwin"}, "linux", false},
+		{"one of several", []string{"linux", "darwin"}, "linux", true},
+		// The wsl tag only ever rides alongside linux; it never matches other
+		// platforms regardless of the host.
+		{"wsl never matches darwin", []string{"wsl"}, "darwin", false},
+	}
+	for _, tc := range cases {
+		if got := onlyMatches(tc.only, tc.plat); got != tc.want {
+			t.Errorf("%s: onlyMatches(%v, %q) = %v, want %v", tc.name, tc.only, tc.plat, got, tc.want)
+		}
+	}
+	// The wsl/linux pairing depends on the host: under WSL an only=["wsl"]
+	// method is active on plat "linux", elsewhere it is not.
+	if got, want := onlyMatches([]string{"wsl"}, "linux"), platform.IsWSL(); got != want {
+		t.Errorf("onlyMatches([wsl], linux) = %v, want %v (IsWSL)", got, want)
 	}
 }

@@ -24,25 +24,46 @@ const (
 	MarkerEnd       = "# <<< dots managed <<<"
 )
 
-var zshBootstrapper = MarkerStart + "\n" +
-	`_dots_d="${XDG_CONFIG_HOME:-$HOME/.config}/dots/shell.d"` + "\n" +
-	`if [[ -d "$_dots_d" ]]; then` + "\n" +
-	`  for _dots_f in "$_dots_d"/[0-9]*.sh "$_dots_d"/[0-9]*.zsh; do` + "\n" +
-	`    [[ -f "$_dots_f" ]] && source "$_dots_f"` + "\n" +
-	`  done` + "\n" +
-	`  unset _dots_f _dots_d` + "\n" +
-	`fi` + "\n" +
-	MarkerEnd
+// defaultShellDir mirrors the [shell] dir default in config.defaults().
+const defaultShellDir = "~/.config/dots/shell.d"
 
-var bashBootstrapper = MarkerStart + "\n" +
-	`_dots_d="${XDG_CONFIG_HOME:-$HOME/.config}/dots/shell.d"` + "\n" +
-	`if [ -d "$_dots_d" ]; then` + "\n" +
-	`  for _dots_f in "$_dots_d"/[0-9]*.sh "$_dots_d"/[0-9]*.bash; do` + "\n" +
-	`    [ -f "$_dots_f" ] && . "$_dots_f"` + "\n" +
-	`  done` + "\n" +
-	`  unset _dots_f _dots_d` + "\n" +
-	`fi` + "\n" +
-	MarkerEnd
+// bootstrapperDir renders the shell.d directory for use inside the rc
+// bootstrapper. The default location is emitted XDG-aware so the block does
+// not bake in a specific home layout; a custom dir keeps ~ as $HOME so the
+// shell resolves it at source time.
+func bootstrapperDir(dir string) string {
+	if dir == "" || dir == defaultShellDir {
+		return `${XDG_CONFIG_HOME:-$HOME/.config}/dots/shell.d`
+	}
+	if strings.HasPrefix(dir, "~/") {
+		return "$HOME/" + dir[2:]
+	}
+	return dir
+}
+
+func zshBootstrapper(dir string) string {
+	return MarkerStart + "\n" +
+		`_dots_d="` + bootstrapperDir(dir) + `"` + "\n" +
+		`if [[ -d "$_dots_d" ]]; then` + "\n" +
+		`  for _dots_f in "$_dots_d"/[0-9]*.sh "$_dots_d"/[0-9]*.zsh; do` + "\n" +
+		`    [[ -f "$_dots_f" ]] && source "$_dots_f"` + "\n" +
+		`  done` + "\n" +
+		`  unset _dots_f _dots_d` + "\n" +
+		`fi` + "\n" +
+		MarkerEnd
+}
+
+func bashBootstrapper(dir string) string {
+	return MarkerStart + "\n" +
+		`_dots_d="` + bootstrapperDir(dir) + `"` + "\n" +
+		`if [ -d "$_dots_d" ]; then` + "\n" +
+		`  for _dots_f in "$_dots_d"/[0-9]*.sh "$_dots_d"/[0-9]*.bash; do` + "\n" +
+		`    [ -f "$_dots_f" ] && . "$_dots_f"` + "\n" +
+		`  done` + "\n" +
+		`  unset _dots_f _dots_d` + "\n" +
+		`fi` + "\n" +
+		MarkerEnd
+}
 
 // GenerateEnvSnippet returns the content of 010-env.sh derived from cfg.Env.
 func GenerateEnvSnippet(cfg config.Config) string {
@@ -438,9 +459,9 @@ func InsertSourceLine(cfg config.Config, dryRun bool, sec *ui.Section) error {
 func insertSourceLine(cfg config.Config, dryRun, summary bool, sec *ui.Section, c *snippetCounts) error {
 	for _, rc := range []string{cfg.Shell.Zshrc, cfg.Shell.Bashrc} {
 		path := fileutil.Expand(rc)
-		bootstrapper := zshBootstrapper
+		bootstrapper := zshBootstrapper(cfg.Shell.Dir)
 		if rc == cfg.Shell.Bashrc {
-			bootstrapper = bashBootstrapper
+			bootstrapper = bashBootstrapper(cfg.Shell.Dir)
 		}
 		changed, err := InsertBlock(path, bootstrapper, dryRun)
 		if err != nil {
