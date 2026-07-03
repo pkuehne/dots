@@ -50,17 +50,8 @@ func githubInstall(tool config.Tool, plat string) *config.ToolInstall {
 		if inst.Method != "github" {
 			continue
 		}
-		if len(inst.Only) > 0 {
-			match := false
-			for _, o := range inst.Only {
-				if o == plat {
-					match = true
-					break
-				}
-			}
-			if !match {
-				continue
-			}
+		if !onlyMatches(inst.Only, plat) {
+			continue
 		}
 		return inst
 	}

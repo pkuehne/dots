@@ -10,6 +10,10 @@ import (
 	"github.com/pkuehne/dots/internal/config"
 )
 
+// zshBoot is the default-dir zsh bootstrapper block used as marker-block
+// content throughout these tests.
+var zshBoot = zshBootstrapper(defaultShellDir)
+
 // ── GenerateEnvSnippet ────────────────────────────────────────────────────────
 
 func TestEnvSnippetFormat(t *testing.T) {
@@ -238,7 +242,7 @@ func TestCustomSnippetStripsManagedBlock(t *testing.T) {
 	if err := os.MkdirAll(filesDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	content := "alias ll='ls -la'\n\n" + zshBootstrapper + "\n"
+	content := "alias ll='ls -la'\n\n" + zshBoot + "\n"
 	if err := os.WriteFile(filepath.Join(filesDir, ".zshrc"), []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -275,7 +279,7 @@ func TestInsertBlockCreatesFile(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "sub", ".zshrc")
 
-	modified, err := InsertBlock(path, zshBootstrapper, false)
+	modified, err := InsertBlock(path, zshBoot, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -293,7 +297,7 @@ func TestInsertBlockAppendsToExisting(t *testing.T) {
 	path := filepath.Join(dir, ".zshrc")
 	_ = os.WriteFile(path, []byte("# existing content\n"), 0o644)
 
-	_, err := InsertBlock(path, zshBootstrapper, false)
+	_, err := InsertBlock(path, zshBoot, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -310,7 +314,7 @@ func TestInsertBlockAppendsToExisting(t *testing.T) {
 func TestInsertBlockUpdatesExisting(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, ".zshrc")
-	initial := "# before\n" + zshBootstrapper + "\n# after\n"
+	initial := "# before\n" + zshBoot + "\n# after\n"
 	_ = os.WriteFile(path, []byte(initial), 0o644)
 
 	newBlock := MarkerStart + "\n# updated\n" + MarkerEnd
@@ -335,8 +339,8 @@ func TestInsertBlockIdempotent(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, ".zshrc")
 
-	_, _ = InsertBlock(path, zshBootstrapper, false)
-	_, _ = InsertBlock(path, zshBootstrapper, false)
+	_, _ = InsertBlock(path, zshBoot, false)
+	_, _ = InsertBlock(path, zshBoot, false)
 
 	data, _ := os.ReadFile(path)
 	text := string(data)
@@ -352,8 +356,8 @@ func TestInsertBlockPreservesDollarSigns(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, ".zshrc")
 
-	_, _ = InsertBlock(path, zshBootstrapper, false)
-	modified, err := InsertBlock(path, zshBootstrapper, false)
+	_, _ = InsertBlock(path, zshBoot, false)
+	modified, err := InsertBlock(path, zshBoot, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -371,7 +375,7 @@ func TestInsertBlockDryRun(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, ".zshrc")
 
-	modified, err := InsertBlock(path, zshBootstrapper, true)
+	modified, err := InsertBlock(path, zshBoot, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -386,7 +390,7 @@ func TestInsertBlockDryRun(t *testing.T) {
 func TestRemoveBlock(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, ".zshrc")
-	content := "# before\n" + zshBootstrapper + "\n# after\n"
+	content := "# before\n" + zshBoot + "\n# after\n"
 	_ = os.WriteFile(path, []byte(content), 0o644)
 
 	modified, err := RemoveBlock(path, false)
@@ -1019,5 +1023,24 @@ func TestAssembled(t *testing.T) {
 	}
 	if !strings.Contains(result, "# env") || !strings.Contains(result, "# path") {
 		t.Error("assembled output should contain both snippet contents")
+	}
+}
+
+// ── Bootstrapper dir ─────────────────────────────────────────────────────────
+
+// The rc bootstrapper must source the configured [shell] dir, not a hardcoded
+// default — otherwise snippets written to a custom dir are never sourced.
+func TestBootstrapperHonorsCustomDir(t *testing.T) {
+	if got := zshBootstrapper("~/my/snippets"); !strings.Contains(got, `_dots_d="$HOME/my/snippets"`) {
+		t.Errorf("custom dir missing from zsh bootstrapper:\n%s", got)
+	}
+	if got := bashBootstrapper("/opt/snippets"); !strings.Contains(got, `_dots_d="/opt/snippets"`) {
+		t.Errorf("absolute custom dir missing from bash bootstrapper:\n%s", got)
+	}
+	// The default stays XDG-aware rather than baking in a home layout.
+	for _, got := range []string{zshBootstrapper(""), zshBootstrapper(defaultShellDir)} {
+		if !strings.Contains(got, `_dots_d="${XDG_CONFIG_HOME:-$HOME/.config}/dots/shell.d"`) {
+			t.Errorf("default dir should be XDG-aware:\n%s", got)
+		}
 	}
 }

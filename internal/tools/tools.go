@@ -239,23 +239,29 @@ func findInstallMethod(tool config.Tool, plat string) *config.ToolInstall {
 
 	for i := range tool.Install {
 		inst := &tool.Install[i]
-		if len(inst.Only) > 0 {
-			match := false
-			for _, o := range inst.Only {
-				if o == plat {
-					match = true
-					break
-				}
-			}
-			if !match {
-				continue
-			}
+		if !onlyMatches(inst.Only, plat) {
+			continue
 		}
 		if available[inst.Method] {
 			return inst
 		}
 	}
 	return nil
+}
+
+// onlyMatches reports whether an install method's only filter admits plat.
+// It honours the extra "wsl" tag that rides alongside "linux" under WSL, so
+// method-level only filters behave like tool-level ones (which are matched
+// against platform.Platforms() in Filter).
+func onlyMatches(only []string, plat string) bool {
+	if len(only) == 0 {
+		return true
+	}
+	tags := []string{plat}
+	if plat == "linux" && platform.IsWSL() {
+		tags = append(tags, "wsl")
+	}
+	return intersects(only, tags)
 }
 
 // installTool runs the install for inst and returns the version it installed,
