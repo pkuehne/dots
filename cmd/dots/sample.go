@@ -48,6 +48,9 @@ const sampleConfig = `# ──────────────────�
 #   • "managed = false" sections are inert; flip to true to opt in.
 #   • Defaults are noted in comments; commented-out keys show the default value.
 #   • Every operation is idempotent: running "dots apply" twice is a no-op.
+#   • only = [...] (allowed on many entries) restricts an entry to platform
+#     tags: linux | darwin | windows | termux. Under WSL the extra tag "wsl"
+#     is active alongside "linux", so only = ["wsl"] targets WSL specifically.
 # ─────────────────────────────────────────────────────────────────────────────
 
 
@@ -80,12 +83,13 @@ LESS = "-R"
 [[env.when]]
 key = "HOMEBREW_PREFIX"    # variable to set
 value = "/opt/homebrew"    # value to give it
-only = ["darwin"]          # only on these platforms (see "only" note below)
+only = ["darwin"]          # only on these platforms (see "only" note above)
 
 [[env.when]]
 key = "BAT_THEME"
 value = "ansi"
-if_tool = "bat"            # only if the tool named "bat" is installed
+if_tool = "bat"            # only when this command is on PATH — emitted as a
+                           # "command -v bat" guard checked at shell startup
 
 
 # ── [shell] — managed shell bootstrap ────────────────────────────────────────
@@ -103,14 +107,24 @@ login = false
 # zshrc  = "~/.zshrc"
 # bashrc = "~/.bashrc"
 
-# Directory holding the sourced snippet files. dots writes generated snippets
-# here (e.g. from tools and presets); you can drop your own *.sh files in too.
-# Default shown.
+# Directory holding the sourced snippet files. dots owns this directory: apply
+# writes generated snippets here and deletes numbered snippets it no longer
+# expects, so don't hand-place files here — they would be cleaned up. To add
+# your own snippets, put them in <repo>/shell/ instead; apply deploys them into
+# this directory. Give them a numeric prefix (e.g. 060-foo.sh) — the rc
+# bootstrapper only sources numbered *.sh files (plus *.zsh / *.bash for the
+# matching shell). Default shown.
 # dir = "~/.config/dots/shell.d"
 
 # Directories prepended to PATH by the managed shell. This is the ONLY place to
-# manage PATH (it's rejected in [env]). Order matters — earliest wins.
+# manage PATH (it's rejected in [env]). Order matters — earliest wins. When any
+# [[tool]] is configured, [tools] bin_dir is prepended automatically.
 path = ["~/.local/bin", "~/.cargo/bin", "~/go/bin"]
+
+# Auto-install dots' own zsh completions via a shell.d snippet whenever the
+# shell is managed (dynamic completions for tool/repo/preset names, profiles
+# and tags). Set false to opt out. Default: true.
+# completions = true
 
 
 # ── [git] — managed git config ───────────────────────────────────────────────
@@ -162,32 +176,35 @@ only = ["linux"]           # restrict this host to certain platforms
 
 # ── [tools] — where downloaded tool binaries land ────────────────────────────
 [tools]
-# Directory for binaries dots installs (github/script methods) and symlinks it
-# creates. Put this on your PATH (see [shell] path). Default: "~/.local/bin".
+# Directory for binaries the github install method downloads and the symlinks
+# it creates. When any [[tool]] is configured, the managed shell prepends this
+# to PATH automatically — no [shell] path entry needed. Default: "~/.local/bin".
 bin_dir = "~/.local/bin"
 
 
 # ── [[tool]] — declarative tool installation ─────────────────────────────────
 # Each [[tool]] describes a program dots can install and check for. A tool may
-# list multiple [[tool.install]] methods; dots uses the first one whose command
-# is available on the current machine (e.g. brew on macOS, apt on Debian).
+# list multiple [[tool.install]] methods; dots uses the first one whose package
+# manager is on PATH (github/script/manual always qualify) and whose optional
+# only filter matches the platform (e.g. brew on macOS, apt on Debian).
 [[tool]]
 name = "ripgrep"                 # required; also the CLI handle (dots tools ...)
 desc = "fast recursive grep"     # shown in "dots tools list"
 check = "rg --version"           # command that succeeds iff installed.
-                                 # Default: "which <name>".
+                                 # Default: <name> found on PATH.
 tags = ["cli", "search"]         # free-form; filter with "dots tools --tag"
-only = ["linux", "darwin"]       # restrict to platforms (see "only" note)
+only = ["linux", "darwin"]       # restrict to platforms (see "only" note above)
 # profile = "work"               # only install under this named profile
 
 # Install methods, tried in order. Available methods:
-#   pkg | apt | brew | cargo | go | pip | pipx | npm  — package managers
+#   pkg (Termux) | apt | brew | cargo | go | pip | pipx | npm — package managers
 #   github  — download a release asset from GitHub
 #   script  — run a raw shell command
 #   manual  — print a note and skip (for things dots can't automate)
 [[tool.install]]
 method = "apt"
 package = "ripgrep"              # package name for the manager (defaults to name)
+# only = ["linux"]               # a method can carry its own platform filter
 
 [[tool.install]]
 method = "brew"
@@ -214,19 +231,25 @@ asset = "lazygit_{version}_Linux_{arch}.tar.gz"
 binary = "lazygit"               # binary to extract from the archive
 # binary_path = "bin/lazygit"    # exact path inside the archive (alt to binary)
 # Remap the detected {arch} for tools with inconsistent naming. Only listed
-# architectures are remapped; others pass through unchanged.
+# architectures are remapped; others pass through unchanged. Applies to {arch}
+# only — {goarch} always stays the canonical Go name.
 arch_map = { aarch64 = "arm64" }
-# Pin a release, or omit / use "latest" to track the newest. dots records the
+# Pin a release ("0.44.1" — the tag is matched as given, then with a "v"
+# prefix), or omit / use "latest" to track the newest. dots records the
 # installed version in ~/.config/dots/installed.toml (machine-local, not
 # committed) and can assert/update it via "dots tools status|update".
 version = "latest"
-# install_dir extracts the WHOLE archive tree here and symlinks the binary from
-# bin_dir into it — use for tools that need sibling runtime files (nvim, zig).
+# install_dir extracts the WHOLE archive tree here (replaced atomically on each
+# install) and symlinks {bin_dir}/{binary} to the binary inside it — use for
+# tools that need sibling runtime files (nvim, zig).
 # install_dir = "~/.local/lazygit"
 
 # Per-tool shell integration: extra env, PATH, and an init snippet emitted into
-# the managed shell only when this tool is present. [tool.shell] attaches to the
-# [[tool]] directly above it.
+# the managed shell. env and init are guarded at shell startup and skipped
+# unless the tool is on PATH; path entries are always added. In init, "{shell}"
+# expands to the running shell (zsh or bash) and makes dots emit per-shell
+# snippet variants — e.g. init = "eval \"$(zoxide init {shell})\"".
+# [tool.shell] attaches to the [[tool]] directly above it.
 [tool.shell]
 env = { LG_CONFIG_FILE = "~/.config/lazygit/config.yml" }
 path = ["~/.local/share/lazygit/bin"]
@@ -300,8 +323,8 @@ only = ["linux", "darwin"]       # restrict to platforms
 # "dots encrypt <file>" produces <file>.age; files marked secret = true (or
 # ending in .age) are decrypted on deploy.
 [secrets]
-# Public recipient(s) new files are encrypted to. An age recipient (age1...) or
-# an ssh public key.
+# Public recipient(s) new files are encrypted to: age recipients (age1...),
+# one per line for multiple. SSH public keys are not supported.
 recipient = "age1ql3z7hjy54pw3hyww5ayyfg7zqgvc7w3j2elw8zmrj2kg5sfn9aqmcac8p"
 # Private identity file used to decrypt. Machine-local; keep it out of the repo.
 # Default: "~/.config/dots/key.txt".
