@@ -49,8 +49,9 @@ const sampleConfig = `# ──────────────────�
 #   • Defaults are noted in comments; commented-out keys show the default value.
 #   • Every operation is idempotent: running "dots apply" twice is a no-op.
 #   • only = [...] (allowed on many entries) restricts an entry to platform
-#     tags: linux | darwin | windows | termux. Under WSL the extra tag "wsl"
-#     is active alongside "linux", so only = ["wsl"] targets WSL specifically.
+#     tags: linux | darwin | windows | termux. Some matchers also honour an extra
+#     tag "wsl" alongside "linux" under WSL; where only matches Detect(), only
+#     "linux" is seen.
 # ─────────────────────────────────────────────────────────────────────────────
 
 
