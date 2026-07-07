@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.5.1](https://github.com/pkuehne/dots/compare/v1.5.0...v1.5.1) (2026-07-07)
+
+
+### Bug Fixes
+
+* honor custom shell dir and wsl tag in install methods ([#53](https://github.com/pkuehne/dots/issues/53)) ([f309aa5](https://github.com/pkuehne/dots/commit/f309aa57cf85d540378b5607b3d19fc023ba914e))
+* make dots sample accurate and comprehensive ([#52](https://github.com/pkuehne/dots/issues/52)) ([85d3acf](https://github.com/pkuehne/dots/commit/85d3acf2b97b5c33a62a1379b2c80f8921425e84))
+
 ## [1.5.0](https://github.com/pkuehne/dots/compare/v1.4.0...v1.5.0) (2026-07-02)
 
 
