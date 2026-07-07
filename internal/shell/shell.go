@@ -156,10 +156,24 @@ func GeneratePathSnippet(cfg config.Config) string {
 // shellName is substituted for {shell} in tool.Shell.Init (typically "zsh" or "bash").
 func GenerateToolSnippet(tool config.Tool, shellName string) string {
 	guard := tool.Name
-	if strings.HasPrefix(tool.Check, "which ") {
-		parts := strings.Fields(tool.Check)
-		if len(parts) > 1 {
+
+	// Derive guard from check command if it is a simple binary presence test.
+	switch {
+	case strings.HasPrefix(tool.Check, "which "):
+		if parts := strings.Fields(tool.Check); len(parts) > 1 {
 			guard = parts[1]
+		}
+	case strings.HasPrefix(tool.Check, "command -v "):
+		if parts := strings.Fields(tool.Check); len(parts) >= 3 {
+			guard = parts[2]
+		}
+	default:
+		// Fall back to the binary field from the first matching install entry.
+		for _, inst := range tool.Install {
+			if inst.Binary != "" {
+				guard = inst.Binary
+				break
+			}
 		}
 	}
 

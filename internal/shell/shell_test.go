@@ -190,6 +190,36 @@ func TestToolSnippetGuardFromWhichCheck(t *testing.T) {
 	}
 }
 
+func TestToolSnippetGuardFromCommandVCheck(t *testing.T) {
+	tool := config.Tool{
+		Name:  "ripgrep",
+		Check: "command -v rg",
+	}
+	result := GenerateToolSnippet(tool, "zsh")
+	if !strings.Contains(result, "command -v rg") {
+		t.Errorf("guard should use binary name from 'command -v' check, got:\n%s", result)
+	}
+	if strings.Contains(result, "command -v ripgrep") {
+		t.Error("guard must not use the tool name when check overrides it")
+	}
+}
+
+func TestToolSnippetGuardFromInstallBinary(t *testing.T) {
+	tool := config.Tool{
+		Name:    "neovim",
+		Check:   "nvim --version",
+		Install: []config.ToolInstall{{Method: "github", Binary: "nvim"}},
+		Shell:   config.ToolShell{Env: map[string]string{"EDITOR": "nvim"}},
+	}
+	result := GenerateToolSnippet(tool, "zsh")
+	if !strings.Contains(result, "command -v nvim") {
+		t.Errorf("guard should use install binary name, got:\n%s", result)
+	}
+	if strings.Contains(result, "command -v neovim") {
+		t.Error("guard must not use the tool name when install binary overrides it")
+	}
+}
+
 func TestToolSnippetShellSubstitution(t *testing.T) {
 	tool := config.Tool{
 		Name:  "zoxide",
