@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -43,6 +44,41 @@ func TestSampleConfigIsValid(t *testing.T) {
 	}
 	if _, ok := cfg.Profiles["work"]; !ok {
 		t.Error("expected [profiles.work] to parse")
+	}
+}
+
+// TestSampleConfigIsComprehensive walks the config structs and asserts every
+// toml-tagged key is at least mentioned in the sample (as a set value or in a
+// comment). TestSampleConfigIsValid guarantees the sample contains no key that
+// isn't in the schema; this test guards the other direction — the schema
+// contains no key the sample fails to document.
+func TestSampleConfigIsComprehensive(t *testing.T) {
+	keys := map[string]bool{}
+	collectTomlTags(reflect.TypeOf(config.Config{}), keys, map[reflect.Type]bool{})
+
+	for key := range keys {
+		if !strings.Contains(sampleConfig, key) {
+			t.Errorf("schema key %q is not documented in the sample config", key)
+		}
+	}
+}
+
+// collectTomlTags recursively gathers toml tag names from t and its field
+// types (descending through pointers, slices, and maps).
+func collectTomlTags(t reflect.Type, keys map[string]bool, seen map[reflect.Type]bool) {
+	for t.Kind() == reflect.Pointer || t.Kind() == reflect.Slice || t.Kind() == reflect.Map {
+		t = t.Elem()
+	}
+	if t.Kind() != reflect.Struct || seen[t] {
+		return
+	}
+	seen[t] = true
+	for i := 0; i < t.NumField(); i++ {
+		f := t.Field(i)
+		if tag := f.Tag.Get("toml"); tag != "" && tag != "-" {
+			keys[strings.Split(tag, ",")[0]] = true
+		}
+		collectTomlTags(f.Type, keys, seen)
 	}
 }
 
